@@ -25,6 +25,8 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.RowFilter;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.sqlite.SQLiteErrorCode;
@@ -32,6 +34,8 @@ import org.sqlite.SQLiteException;
 
 final class ServicePanel extends JPanel {
     private static final int STATUS_COLUMN = 4;
+    private static final int REGISTRATION_COLUMN = 2;
+    private static final int CUSTOMER_COLUMN = 3;
 
     private record VehicleOption(VehicleRepository.Vehicle vehicle) {
         @Override
@@ -42,6 +46,7 @@ final class ServicePanel extends JPanel {
 
     private final ServiceRepository repository = new ServiceRepository();
     private final VehicleRepository vehicles = new VehicleRepository();
+    private final boolean readOnly;
     private final DefaultTableModel model = new DefaultTableModel(
             new String[]{"ID", "Service date", "Registration", "Customer", "Status", "Reported problem"}, 0) {
         @Override
@@ -57,14 +62,16 @@ final class ServicePanel extends JPanel {
     private final JTable table = new JTable(model);
     private final TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(model);
     private final JComboBox<String> filter = new JComboBox<>();
+    private final JTextField search = new JTextField();
     private final JLabel count = new JLabel(" ");
     private final JButton detailsButton = new JButton("Open job");
     private final JButton chargesButton = new JButton("Parts and labor");
     private final JButton invoiceButton = new JButton("Preview invoice");
     private List<ServiceRepository.Job> jobs = List.of();
 
-    ServicePanel() {
+    ServicePanel(boolean readOnly) {
         super(new BorderLayout(0, 12));
+        this.readOnly = readOnly;
         setOpaque(false);
 
         JPanel filterBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -77,7 +84,39 @@ final class ServicePanel extends JPanel {
             filter.addItem(status.toString());
         }
         filterBar.add(filter);
-        add(filterBar, BorderLayout.NORTH);
+        if (readOnly) {
+            JPanel searchBar = new JPanel(new BorderLayout(8, 0));
+            searchBar.setOpaque(false);
+            JLabel searchLabel = new JLabel("Search by registration or customer");
+            searchLabel.setLabelFor(search);
+            searchBar.add(searchLabel, BorderLayout.WEST);
+            searchBar.add(search, BorderLayout.CENTER);
+
+            JPanel filters = new JPanel(new BorderLayout(0, 8));
+            filters.setOpaque(false);
+            filters.add(searchBar, BorderLayout.NORTH);
+            filters.add(filterBar, BorderLayout.SOUTH);
+            add(filters, BorderLayout.NORTH);
+
+            search.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent event) {
+                    applyFilter();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent event) {
+                    applyFilter();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent event) {
+                    applyFilter();
+                }
+            });
+        } else {
+            add(filterBar, BorderLayout.NORTH);
+        }
 
         table.setRowSorter(sorter);
         table.setRowHeight(26);
@@ -93,8 +132,11 @@ final class ServicePanel extends JPanel {
         footer.setOpaque(false);
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         actions.setOpaque(false);
-        JButton add = new JButton("New job");
-        actions.add(add);
+        if (!readOnly) {
+            JButton add = new JButton("New job");
+            add.addActionListener(event -> showNewJob());
+            actions.add(add);
+        }
         actions.add(detailsButton);
         actions.add(chargesButton);
         actions.add(invoiceButton);
@@ -102,7 +144,6 @@ final class ServicePanel extends JPanel {
         footer.add(count, BorderLayout.SOUTH);
         add(footer, BorderLayout.SOUTH);
 
-        add.addActionListener(event -> showNewJob());
         detailsButton.addActionListener(event -> {
             ServiceRepository.Job job = selectedJob();
             if (job != null) {
@@ -159,11 +200,19 @@ final class ServicePanel extends JPanel {
 
     private void applyFilter() {
         String status = (String) filter.getSelectedItem();
-        sorter.setRowFilter(filter.getSelectedIndex() == 0 ? null :
-                RowFilter.regexFilter("^" + Pattern.quote(status) + "$", STATUS_COLUMN));
+        String query = search.getText().strip();
+        RowFilter<DefaultTableModel, Integer> statusFilter = filter.getSelectedIndex() == 0 ? null
+                : RowFilter.regexFilter("^" + Pattern.quote(status) + "$", STATUS_COLUMN);
+        RowFilter<DefaultTableModel, Integer> searchFilter = query.isEmpty() ? null
+                : RowFilter.regexFilter("(?iu)" + Pattern.quote(query), REGISTRATION_COLUMN, CUSTOMER_COLUMN);
+        if (statusFilter != null && searchFilter != null) {
+            sorter.setRowFilter(RowFilter.andFilter(List.of(statusFilter, searchFilter)));
+        } else {
+            sorter.setRowFilter(statusFilter == null ? searchFilter : statusFilter);
+        }
         int visible = table.getRowCount();
         if (visible == 0) {
-            count.setText(filter.getSelectedIndex() == 0 ? "No service jobs yet." : "No jobs with this status.");
+            count.setText(query.isEmpty() && statusFilter == null ? "No service jobs yet." : "No matching service jobs.");
         } else {
             count.setText(visible == 1 ? "1 service job" : visible + " service jobs");
         }
@@ -263,7 +312,7 @@ final class ServicePanel extends JPanel {
     }
 
     private void showJob(ServiceRepository.Job job) {
-        boolean active = job.status().isActive();
+        boolean active = !readOnly && job.status().isActive();
         JTextArea problem = textArea(job.problem());
         problem.setEditable(false);
         JTextArea description = textArea(job.description());
@@ -318,7 +367,9 @@ final class ServicePanel extends JPanel {
             JOptionPane.showOptionDialog(this, panel, "Parts and labor · Job #" + job.id() + " · " + job.registration(),
                     JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, new String[]{"Close"}, "Close");
         }
-        refresh();
+        if (!readOnly) {
+            refresh();
+        }
     }
 
     private void showInvoice(long jobId) {
@@ -375,7 +426,9 @@ final class ServicePanel extends JPanel {
             addField(totals, 1, "Labor charge", laborTotal);
             addField(totals, 2, "Grand total", grandTotal);
             JPanel footer = new JPanel(new BorderLayout(0, 8));
-            footer.add(actions, BorderLayout.NORTH);
+            if (!readOnly) {
+                footer.add(actions, BorderLayout.NORTH);
+            }
             footer.add(totals, BorderLayout.CENTER);
             add(footer, BorderLayout.SOUTH);
 
@@ -407,7 +460,7 @@ final class ServicePanel extends JPanel {
                 partModel.addRow(new Object[]{details.name(), details.quantity(),
                         formatMoney(BigDecimal.valueOf(details.unitPriceCents(), 2)), formatMoney(details.total())});
             }
-            String suffix = costs.status().isActive() ? "" : " · Charges are read-only";
+            String suffix = !readOnly && costs.status().isActive() ? "" : " · Charges are read-only";
             jobStatus.setText("Status: " + costs.status() + suffix);
             subtotal.setText(formatMoney(costs.partsTotal()));
             laborTotal.setText(formatMoney(BigDecimal.valueOf(costs.laborCents(), 2)));
@@ -417,7 +470,7 @@ final class ServicePanel extends JPanel {
         }
 
         private void updateControls() {
-            boolean active = costs != null && costs.status().isActive();
+            boolean active = !readOnly && costs != null && costs.status().isActive();
             boolean partSelected = active && partTable.getSelectedRow() >= 0;
             addPart.setEnabled(active);
             editPart.setEnabled(partSelected);

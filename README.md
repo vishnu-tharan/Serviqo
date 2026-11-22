@@ -1,6 +1,6 @@
 # Serviqo
 
-Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, registered vehicles, service jobs, and repair charges in a local SQLite database and prints invoices for completed jobs.
+Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, vehicles, service jobs, and repair charges in SQLite. Staff can search service history and print invoices for completed jobs.
 
 ## Run on Windows
 
@@ -71,5 +71,12 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 4. Select a pending, in-progress, or cancelled job and confirm that **Preview invoice** is disabled.
 
 `InvoicePrinter.java` builds the preview from the saved job and sends it to the selected printer through Java's built-in printing support.
+
+## Find past service jobs
+
+1. Open **Service History**. Jobs are listed by most recent service date first.
+2. Enter all or part of a registration number or customer name. Use the **Status** filter to narrow the results further. Choose **All statuses** and clear the search to show every job again.
+3. Select a row and click **Open job** for the original problem and recorded repair. Click **Parts and labor** for quantities, prices, and totals.
+4. Click **Preview invoice** to reopen the invoice for a completed job. Use **Service Jobs** to update active records.
 
 If `mvn` is unrecognized, check that Maven's `bin` directory is on the Windows `PATH` and reopen the terminal. If Maven reports a different Java version, check that `JAVA_HOME` points to JDK 21. If Serviqo reports a database startup error, confirm the project folder is writable.
