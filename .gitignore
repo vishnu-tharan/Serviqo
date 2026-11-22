@@ -1,0 +1,5 @@
+/target/
+/serviqo.db
+/serviqo.db-journal
+/serviqo.db-shm
+/serviqo.db-wal
