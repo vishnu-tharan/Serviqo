@@ -13,14 +13,6 @@ java -cp 'target/classes;target/dependency/*' com.serviqo.Main
 
 Maven downloads the build plugins and SQLite JDBC driver on the first build. After building, use the second command to launch Serviqo without internet access. Run it from the project folder so the app opens the same `serviqo.db` each time.
 
-## Check Phase 1
-
-1. Launch Serviqo and confirm it opens on **Dashboard** and loads the workshop statistics.
-2. Click Customers, Vehicles, Service Jobs, and Service History. Check that the heading changes and the selected button is highlighted. Return to Dashboard.
-3. Resize the window and check that the sidebar and page heading remain visible.
-4. Check that `serviqo.db` exists beside `pom.xml`. Open the database with DB Browser for SQLite if installed. Confirm it contains `customers`, `vehicles`, `service_jobs`, and `service_parts`.
-5. Close and reopen Serviqo. Check that it starts successfully using the existing database.
-
 ## How it works
 
 `Main.java` starts the application and uses Swing's `CardLayout` to switch screens inside one window. `Database.java` creates the tables in one transaction and enables foreign keys for every connection. The links between tables prevent deleting a parent record while another record still refers to it.
@@ -79,10 +71,44 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 3. Select a row and click **Open job** for the original problem and recorded repair. Click **Parts and labor** for quantities, prices, and totals.
 4. Click **Preview invoice** to reopen the invoice for a completed job. Use **Service Jobs** to update active records.
 
-If `mvn` is unrecognized, check that Maven's `bin` directory is on the Windows `PATH` and reopen the terminal. If Maven reports a different Java version, check that `JAVA_HOME` points to JDK 21. If Serviqo reports a database startup error, confirm the project folder is writable.
-
 ## Check the dashboard
 
 1. Open **Dashboard** to see customer and vehicle counts, job counts by active and completed status, and up to eight recent service jobs.
 2. Complete a job with saved parts and labor, then return to **Dashboard**. The completed job count and completed service value should reflect the change. Pending, in-progress, and cancelled jobs do not contribute to the completed service value.
 3. Resize the window down to its minimum size and check that the sidebar, statistics, and recent jobs table remain accessible.
+
+## Demo workflow
+
+Use a fresh database for this exercise. After building the project, run the following from the project folder in PowerShell to open Serviqo with a separate demo database. Keep the same PowerShell session and repeat the `Push-Location` through `Pop-Location` block to reopen that demo.
+
+```powershell
+$project = (Get-Location).Path
+$demo = Join-Path $env:TEMP ("serviqo-demo-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $demo | Out-Null
+Push-Location $demo
+try {
+    java -cp "${project}\target\classes;${project}\target\dependency\*" com.serviqo.Main
+} finally {
+    Pop-Location
+}
+```
+
+| Screen | Sample records |
+| --- | --- |
+| Customers | Nila Perera, 0770000123 |
+| Vehicles | DEMO-1234, Motorcycle, Honda Dio, 2020 |
+| Service Jobs | Today's date, reported problem **Oil leak near the engine**, repair **Replaced the seal and changed the engine oil** |
+| Parts and labor | Engine oil, 2 × Rs. 2,000.00. Oil filter, 1 × Rs. 1,500.00. Labor, Rs. 2,500.00. |
+
+1. Create the records in order and check that the job starts as **Pending**. Set it to **In Progress** while recording the charges, then mark it **Completed**.
+2. Open the invoice and check the **Rs. 8,000.00** grand total. Use the print dialog to print or select **Microsoft Print to PDF** if available.
+3. In **Service History**, search for `demo-1234` and filter by **Completed**. Confirm that the repair, charges, and invoice can be reopened.
+4. Try adding a customer with a blank name or using a duplicate registration. Try a part quantity of zero and a negative price on a separate active job. Each entry should be rejected. Try deleting Nila in **Customers** and confirm that her registered vehicle protects the record.
+5. Close and reopen the demo. Check that the records still appear and **Dashboard** shows one completed job worth **Rs. 8,000.00**. Check that every sidebar button opens the page it names.
+
+## Troubleshooting
+
+- **Maven command is missing.** Add Maven's `bin` directory to Windows `PATH` and reopen the terminal, or run `mvn.cmd` directly from that directory using its full path.
+- **Maven uses a different Java version.** Check that `JAVA_HOME` points to JDK 21 and that `mvn -version` reports the expected JDK.
+- **Database startup failed.** Check that the folder you launched from is writable and that `serviqo.db` is a valid SQLite file. Keep a backup of the file before repairing or replacing it.
+- **Print failed.** Confirm that a printer or virtual printer is installed and try printing the invoice again from its preview.
