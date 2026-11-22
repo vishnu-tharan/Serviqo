@@ -1,6 +1,6 @@
 # Serviqo
 
-Serviqo is a Java desktop application for vehicle service and repair workshops. It currently provides sidebar navigation, local SQLite storage, customer management, and vehicle registration.
+Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, registered vehicles, and service jobs in a local SQLite database.
 
 ## Run on Windows
 
@@ -44,5 +44,15 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 5. Reopen Serviqo and check that the vehicle and its changes are still present. In **Customers**, confirm that the owner is protected from deletion while the vehicle is registered.
 
 `VehiclePanel.java` handles the vehicle form, owner selection, and table. `VehicleRepository.java` reads the owner's name from the linked customer record and uses prepared statements to save vehicle details.
+
+## Manage service jobs
+
+1. Register a customer's vehicle. Open **Service Jobs**, click **New job**, and select its registration number. The form shows the linked customer and vehicle details.
+2. Enter the reported problem and a service date in `YYYY-MM-DD` format. The repair description is optional. Save the job and confirm it appears as **Pending**.
+3. Select the job and click **Open job** to edit the repair description or change the status. Set the job to **In Progress** before marking it **Completed**.
+4. A **Pending** or **In Progress** job can be marked **Cancelled**. Completed and cancelled jobs are read-only. Serviqo asks for confirmation before closing either way.
+5. Use the **Status** filter to show jobs in a particular state. Reopen Serviqo to confirm that the job, repair description, and status are still saved.
+
+`ServicePanel.java` handles the service job forms and table. `ServiceRepository.java` saves jobs and enforces the status transitions.
 
 If `mvn` is unrecognized, check that Maven's `bin` directory is on the Windows `PATH` and reopen the terminal. If Maven reports a different Java version, check that `JAVA_HOME` points to JDK 21. If Serviqo reports a database startup error, confirm the project folder is writable.

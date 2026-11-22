@@ -73,7 +73,8 @@ public final class Main {
         addScreen(sidebar, navigation, screens, layout, "Customers", customers, customers::refresh);
         VehiclePanel vehicles = new VehiclePanel();
         addScreen(sidebar, navigation, screens, layout, "Vehicles", vehicles, vehicles::refresh);
-        addScreen(sidebar, navigation, screens, layout, "Service Jobs", "Job tracking is planned for Phase 4.");
+        ServicePanel services = new ServicePanel();
+        addScreen(sidebar, navigation, screens, layout, "Service Jobs", services, services::refresh);
         addScreen(sidebar, navigation, screens, layout, "Service History", "Service history is planned for Phase 7.");
 
         window.add(sidebar, BorderLayout.WEST);
