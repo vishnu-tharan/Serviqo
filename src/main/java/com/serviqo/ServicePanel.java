@@ -3,9 +3,7 @@ package com.serviqo;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -15,7 +13,6 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -119,10 +116,8 @@ final class ServicePanel extends JPanel {
         }
 
         table.setRowSorter(sorter);
-        table.setRowHeight(26);
+        Main.styleTable(table);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
         table.getColumnModel().getColumn(0).setMaxWidth(48);
         table.getColumnModel().getColumn(3).setPreferredWidth(100);
         table.getColumnModel().getColumn(5).setPreferredWidth(155);
@@ -257,12 +252,12 @@ final class ServicePanel extends JPanel {
         JTextArea problem = textArea("");
         JTextArea description = textArea("");
         JPanel form = new JPanel(new GridBagLayout());
-        addField(form, 0, "Registration", vehicleBox);
-        addField(form, 1, "Customer", owner);
-        addField(form, 2, "Vehicle", vehicleDetails);
-        addField(form, 3, "Service date (YYYY-MM-DD)", date);
-        addField(form, 4, "Reported problem", new JScrollPane(problem));
-        addField(form, 5, "Repair description (optional)", new JScrollPane(description));
+        Main.addField(form, 0, "Registration", vehicleBox);
+        Main.addField(form, 1, "Customer", owner);
+        Main.addField(form, 2, "Vehicle", vehicleDetails);
+        Main.addField(form, 3, "Service date (YYYY-MM-DD)", date);
+        Main.addField(form, 4, "Reported problem", new JScrollPane(problem));
+        Main.addField(form, 5, "Repair description (optional)", new JScrollPane(description));
 
         while (confirmForm(form, "New service job")) {
             VehicleOption option = (VehicleOption) vehicleBox.getSelectedItem();
@@ -325,15 +320,15 @@ final class ServicePanel extends JPanel {
         statuses.setEnabled(active);
 
         JPanel form = new JPanel(new GridBagLayout());
-        addField(form, 0, "Registration", readOnlyField(job.registration()));
-        addField(form, 1, "Customer", readOnlyField(job.owner()));
-        addField(form, 2, "Vehicle", readOnlyField(job.vehicle()));
-        addField(form, 3, "Service date", readOnlyField(job.serviceDate()));
-        addField(form, 4, "Reported problem", new JScrollPane(problem));
-        addField(form, 5, "Repair description", new JScrollPane(description));
-        addField(form, 6, "Status", statuses);
+        Main.addField(form, 0, "Registration", readOnlyField(job.registration()));
+        Main.addField(form, 1, "Customer", readOnlyField(job.owner()));
+        Main.addField(form, 2, "Vehicle", readOnlyField(job.vehicle()));
+        Main.addField(form, 3, "Service date", readOnlyField(job.serviceDate()));
+        Main.addField(form, 4, "Reported problem", new JScrollPane(problem));
+        Main.addField(form, 5, "Repair description", new JScrollPane(description));
+        Main.addField(form, 6, "Status", statuses);
         if (job.completedAt() != null) {
-            addField(form, 7, "Completed (UTC)", readOnlyField(job.completedAt()));
+            Main.addField(form, 7, "Completed (UTC)", readOnlyField(job.completedAt()));
         }
 
         String title = "Service job #" + job.id();
@@ -408,8 +403,7 @@ final class ServicePanel extends JPanel {
             this.jobId = jobId;
             add(jobStatus, BorderLayout.NORTH);
 
-            partTable.setRowHeight(24);
-            partTable.setFillsViewportHeight(true);
+            Main.styleTable(partTable);
             partTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             partTable.getColumnModel().getColumn(0).setPreferredWidth(180);
             JScrollPane scroll = new JScrollPane(partTable);
@@ -422,9 +416,9 @@ final class ServicePanel extends JPanel {
             actions.add(removePart);
             actions.add(editLabor);
             JPanel totals = new JPanel(new GridBagLayout());
-            addField(totals, 0, "Parts subtotal", subtotal);
-            addField(totals, 1, "Labor charge", laborTotal);
-            addField(totals, 2, "Grand total", grandTotal);
+            Main.addField(totals, 0, "Parts subtotal", subtotal);
+            Main.addField(totals, 1, "Labor charge", laborTotal);
+            Main.addField(totals, 2, "Grand total", grandTotal);
             JPanel footer = new JPanel(new BorderLayout(0, 8));
             if (!readOnly) {
                 footer.add(actions, BorderLayout.NORTH);
@@ -489,9 +483,9 @@ final class ServicePanel extends JPanel {
             JTextField price = new JTextField(details == null ? "" :
                     BigDecimal.valueOf(details.unitPriceCents(), 2).toPlainString(), 12);
             JPanel form = new JPanel(new GridBagLayout());
-            addField(form, 0, "Part name", name);
-            addField(form, 1, "Quantity", quantity);
-            addField(form, 2, "Unit price (LKR)", price);
+            Main.addField(form, 0, "Part name", name);
+            Main.addField(form, 1, "Quantity", quantity);
+            Main.addField(form, 2, "Unit price (LKR)", price);
 
             String title = part == null ? "Add part" : "Edit part";
             while (confirmChargeForm(form, title)) {
@@ -526,7 +520,7 @@ final class ServicePanel extends JPanel {
             long previousCents = costs.laborCents();
             JTextField amount = new JTextField(BigDecimal.valueOf(previousCents, 2).toPlainString(), 12);
             JPanel form = new JPanel(new GridBagLayout());
-            addField(form, 0, "Labor charge (LKR)", amount);
+            Main.addField(form, 0, "Labor charge (LKR)", amount);
             while (confirmChargeForm(form, "Set labor charge")) {
                 try {
                     finishChange(repository.updateLabor(jobId, previousCents, readMoney(amount.getText(), "labor charge")));
@@ -598,22 +592,6 @@ final class ServicePanel extends JPanel {
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
         return area;
-    }
-
-    private static void addField(JPanel form, int row, String text, JComponent field) {
-        JLabel label = new JLabel(text);
-        label.setLabelFor(field instanceof JScrollPane scrollPane ? scrollPane.getViewport().getView() : field);
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridx = 0;
-        constraints.gridy = row;
-        constraints.anchor = GridBagConstraints.WEST;
-        constraints.insets = new Insets(4, 0, 4, 12);
-        form.add(label, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        constraints.insets = new Insets(4, 0, 4, 0);
-        form.add(field, constraints);
     }
 
     private boolean confirmForm(JPanel form, String title) {

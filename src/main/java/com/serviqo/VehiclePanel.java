@@ -2,16 +2,13 @@ package com.serviqo;
 
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
-import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -75,10 +72,8 @@ final class VehiclePanel extends JPanel {
         add(searchBar, BorderLayout.NORTH);
 
         table.setRowSorter(sorter);
-        table.setRowHeight(26);
+        Main.styleTable(table);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
         table.getColumnModel().getColumn(0).setMaxWidth(48);
         table.getColumnModel().getColumn(1).setPreferredWidth(110);
         table.getColumnModel().getColumn(2).setPreferredWidth(145);
@@ -204,13 +199,13 @@ final class VehiclePanel extends JPanel {
         }
 
         JPanel form = new JPanel(new GridBagLayout());
-        addField(form, 0, "Owner", ownerBox);
-        addField(form, 1, "Registration number", registration);
-        addField(form, 2, "Vehicle type", type);
-        addField(form, 3, "Brand", brand);
-        addField(form, 4, "Model", modelField);
-        addField(form, 5, "Manufacturing year (optional)", year);
-        addField(form, 6, "Notes (optional)", new JScrollPane(notes));
+        Main.addField(form, 0, "Owner", ownerBox);
+        Main.addField(form, 1, "Registration number", registration);
+        Main.addField(form, 2, "Vehicle type", type);
+        Main.addField(form, 3, "Brand", brand);
+        Main.addField(form, 4, "Model", modelField);
+        Main.addField(form, 5, "Manufacturing year (optional)", year);
+        Main.addField(form, 6, "Notes (optional)", new JScrollPane(notes));
 
         String title = vehicle == null ? "Register vehicle" : "Edit vehicle";
         while (JOptionPane.showConfirmDialog(this, form, title,
@@ -248,21 +243,6 @@ final class VehiclePanel extends JPanel {
             refresh();
             return;
         }
-    }
-
-    private void addField(JPanel form, int row, String labelText, JComponent field) {
-        JLabel label = new JLabel(labelText);
-        label.setLabelFor(field);
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridy = row;
-        constraints.anchor = GridBagConstraints.WEST;
-        constraints.insets = new Insets(4, 0, 4, 12);
-        form.add(label, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        constraints.insets = new Insets(4, 0, 4, 0);
-        form.add(field, constraints);
     }
 
     static VehicleRepository.Details readDetails(long ownerId, String registration, String type,

@@ -1,6 +1,6 @@
 # Serviqo
 
-Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, vehicles, service jobs, and repair charges in SQLite. Staff can search service history and print invoices for completed jobs.
+Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, vehicles, service jobs, and repair charges in SQLite. The dashboard summarizes workshop activity, and staff can search service history and print invoices for completed jobs.
 
 ## Run on Windows
 
@@ -15,7 +15,7 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 
 ## Check Phase 1
 
-1. Launch Serviqo and confirm it opens on Dashboard with the message **Database ready**.
+1. Launch Serviqo and confirm it opens on **Dashboard** and loads the workshop statistics.
 2. Click Customers, Vehicles, Service Jobs, and Service History. Check that the heading changes and the selected button is highlighted. Return to Dashboard.
 3. Resize the window and check that the sidebar and page heading remain visible.
 4. Check that `serviqo.db` exists beside `pom.xml`. Open the database with DB Browser for SQLite if installed. Confirm it contains `customers`, `vehicles`, `service_jobs`, and `service_parts`.
@@ -80,3 +80,9 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 4. Click **Preview invoice** to reopen the invoice for a completed job. Use **Service Jobs** to update active records.
 
 If `mvn` is unrecognized, check that Maven's `bin` directory is on the Windows `PATH` and reopen the terminal. If Maven reports a different Java version, check that `JAVA_HOME` points to JDK 21. If Serviqo reports a database startup error, confirm the project folder is writable.
+
+## Check the dashboard
+
+1. Open **Dashboard** to see customer and vehicle counts, job counts by active and completed status, and up to eight recent service jobs.
+2. Complete a job with saved parts and labor, then return to **Dashboard**. The completed job count and completed service value should reflect the change. Pending, in-progress, and cancelled jobs do not contribute to the completed service value.
+3. Resize the window down to its minimum size and check that the sidebar, statistics, and recent jobs table remain accessible.

@@ -62,6 +62,69 @@ final class ServiceRepository {
                String description, String serviceDate, Status status, String completedAt) {
     }
 
+    record Dashboard(long customers, long vehicles, long pending, long inProgress, long completed,
+                     BigDecimal completedValue, List<Job> recentJobs) {
+    }
+
+    Dashboard loadDashboard() throws SQLException {
+        String countsSql = """
+                SELECT (SELECT COUNT(*) FROM customers) AS customers,
+                       (SELECT COUNT(*) FROM vehicles) AS vehicles,
+                       COUNT(CASE WHEN status = 'Pending' THEN 1 END) AS pending,
+                       COUNT(CASE WHEN status = 'In Progress' THEN 1 END) AS in_progress,
+                       COUNT(CASE WHEN status = 'Completed' THEN 1 END) AS completed
+                FROM service_jobs
+                """;
+        try (Connection connection = Database.connect()) {
+            connection.setAutoCommit(false);
+            List<Job> recentJobs = new ArrayList<>();
+            String recentSql = JOB_QUERY + "ORDER BY j.service_date DESC, j.id DESC LIMIT 8";
+            try (PreparedStatement statement = connection.prepareStatement(recentSql);
+                 ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    recentJobs.add(readJob(rows));
+                }
+            }
+
+            BigDecimal completedValue = loadCompletedValue(connection);
+            Dashboard dashboard;
+            try (PreparedStatement statement = connection.prepareStatement(countsSql);
+                 ResultSet counts = statement.executeQuery()) {
+                if (!counts.next()) {
+                    throw new SQLException("Workshop totals could not be loaded.");
+                }
+                dashboard = new Dashboard(counts.getLong("customers"), counts.getLong("vehicles"),
+                        counts.getLong("pending"), counts.getLong("in_progress"), counts.getLong("completed"),
+                        completedValue, List.copyOf(recentJobs));
+            }
+            connection.commit();
+            return dashboard;
+        }
+    }
+
+    private BigDecimal loadCompletedValue(Connection connection) throws SQLException {
+        String sql = """
+                SELECT 1 AS quantity, labor_charge_cents AS price
+                FROM service_jobs WHERE status = 'Completed'
+                UNION ALL
+                SELECT p.quantity, p.unit_price_cents
+                FROM service_parts p JOIN service_jobs j ON j.id = p.service_job_id
+                WHERE j.status = 'Completed'
+                """;
+        BigDecimal total = BigDecimal.ZERO;
+        try (PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                total = total.add(lineTotal(rows.getLong("price"), rows.getLong("quantity")));
+            }
+        }
+        return total;
+    }
+
+    private static BigDecimal lineTotal(long priceCents, long quantity) {
+        return BigDecimal.valueOf(priceCents, 2).multiply(BigDecimal.valueOf(quantity));
+    }
+
     record Invoice(Job job, String customerPhone, Costs costs) {
         String date() {
             String completedAt = job.completedAt();
@@ -84,7 +147,7 @@ final class ServiceRepository {
         }
 
         BigDecimal total() {
-            return BigDecimal.valueOf(unitPriceCents, 2).multiply(BigDecimal.valueOf(quantity));
+            return lineTotal(unitPriceCents, quantity);
         }
     }
 

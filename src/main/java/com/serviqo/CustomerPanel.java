@@ -3,7 +3,7 @@ package com.serviqo;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.FlowLayout;
-import java.awt.GridLayout;
+import java.awt.GridBagLayout;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -57,10 +57,8 @@ final class CustomerPanel extends JPanel {
         add(searchBar, BorderLayout.NORTH);
 
         table.setRowSorter(sorter);
-        table.setRowHeight(26);
+        Main.styleTable(table);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
         table.getColumnModel().getColumn(0).setMaxWidth(55);
         table.getColumnModel().getColumn(4).setPreferredWidth(150);
         table.getColumnModel().getColumn(5).setPreferredWidth(130);
@@ -149,12 +147,12 @@ final class CustomerPanel extends JPanel {
         JTextField phone = new JTextField(customer == null ? "" : customer.phone(), 24);
         JTextField email = new JTextField(customer == null ? "" : customer.email(), 24);
         JTextField address = new JTextField(customer == null ? "" : customer.address(), 24);
-        JPanel form = new JPanel(new GridLayout(0, 1, 0, 4));
+        JPanel form = new JPanel(new GridBagLayout());
         form.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
-        addField(form, "Full name", name);
-        addField(form, "Phone number", phone);
-        addField(form, "Email (optional)", email);
-        addField(form, "Address (optional)", address);
+        Main.addField(form, 0, "Full name", name);
+        Main.addField(form, 1, "Phone number", phone);
+        Main.addField(form, 2, "Email (optional)", email);
+        Main.addField(form, 3, "Address (optional)", address);
 
         String title = customer == null ? "Add customer" : "Edit customer";
         while (JOptionPane.showConfirmDialog(this, form, title,
@@ -180,13 +178,6 @@ final class CustomerPanel extends JPanel {
             refresh();
             return;
         }
-    }
-
-    private void addField(JPanel form, String labelText, JTextField field) {
-        JLabel label = new JLabel(labelText);
-        label.setLabelFor(field);
-        form.add(label);
-        form.add(field);
     }
 
     static String validate(CustomerRepository.Details details) {
