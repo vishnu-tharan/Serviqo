@@ -7,8 +7,18 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 final class ServiceRepository {
+    private static final String JOB_QUERY = """
+            SELECT j.id, j.reported_problem, j.service_description, j.service_date,
+                   j.status, j.completed_at, v.registration_number, v.vehicle_type,
+                   v.brand, v.model, c.name AS owner, c.phone AS owner_phone
+            FROM service_jobs j
+            JOIN vehicles v ON v.id = j.vehicle_id
+            JOIN customers c ON c.id = v.customer_id
+            """;
+
     enum Status {
         PENDING("Pending"), IN_PROGRESS("In Progress"), COMPLETED("Completed"), CANCELLED("Cancelled");
 
@@ -52,6 +62,14 @@ final class ServiceRepository {
                String description, String serviceDate, Status status, String completedAt) {
     }
 
+    record Invoice(Job job, String customerPhone, Costs costs) {
+        String date() {
+            String completedAt = job.completedAt();
+            return completedAt == null || completedAt.length() < 10
+                    ? job.serviceDate() : completedAt.substring(0, 10);
+        }
+    }
+
     record PartDetails(String name, long quantity, long unitPriceCents) {
         PartDetails {
             if (name.isBlank()) {
@@ -92,29 +110,46 @@ final class ServiceRepository {
     }
 
     List<Job> findAll() throws SQLException {
-        String sql = """
-                SELECT j.id, j.reported_problem, j.service_description, j.service_date,
-                       j.status, j.completed_at, v.registration_number, v.vehicle_type,
-                       v.brand, v.model, c.name AS owner
-                FROM service_jobs j
-                JOIN vehicles v ON v.id = j.vehicle_id
-                JOIN customers c ON c.id = v.customer_id
-                ORDER BY j.service_date DESC, j.id DESC
-                """;
+        String sql = JOB_QUERY + "ORDER BY j.service_date DESC, j.id DESC";
         List<Job> jobs = new ArrayList<>();
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql);
              ResultSet rows = statement.executeQuery()) {
             while (rows.next()) {
-                String vehicle = rows.getString("brand") + " " + rows.getString("model")
-                        + " (" + rows.getString("vehicle_type") + ")";
-                jobs.add(new Job(rows.getLong("id"), rows.getString("registration_number"),
-                        rows.getString("owner"), vehicle, rows.getString("reported_problem"),
-                        rows.getString("service_description"), rows.getString("service_date"),
-                        Status.fromLabel(rows.getString("status")), rows.getString("completed_at")));
+                jobs.add(readJob(rows));
             }
         }
         return jobs;
+    }
+
+    private static Job readJob(ResultSet rows) throws SQLException {
+        String vehicle = rows.getString("brand") + " " + rows.getString("model")
+                + " (" + rows.getString("vehicle_type") + ")";
+        return new Job(rows.getLong("id"), rows.getString("registration_number"), rows.getString("owner"), vehicle,
+                rows.getString("reported_problem"), rows.getString("service_description"), rows.getString("service_date"),
+                Status.fromLabel(rows.getString("status")), rows.getString("completed_at"));
+    }
+
+    Optional<Invoice> findInvoice(long jobId) throws SQLException {
+        String sql = JOB_QUERY + "WHERE j.id = ? AND j.status = 'Completed'";
+        try (Connection connection = Database.connect()) {
+            connection.setAutoCommit(false);
+            Job job = null;
+            String phone = null;
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setLong(1, jobId);
+                try (ResultSet rows = statement.executeQuery()) {
+                    if (rows.next()) {
+                        job = readJob(rows);
+                        phone = rows.getString("owner_phone");
+                    }
+                }
+            }
+            Optional<Invoice> invoice = job == null ? Optional.empty()
+                    : Optional.of(new Invoice(job, phone, loadCosts(connection, jobId)));
+            connection.commit();
+            return invoice;
+        }
     }
 
     void add(NewJob job) throws SQLException {
@@ -157,6 +192,12 @@ final class ServiceRepository {
     }
 
     Costs loadCosts(long jobId) throws SQLException {
+        try (Connection connection = Database.connect()) {
+            return loadCosts(connection, jobId);
+        }
+    }
+
+    private Costs loadCosts(Connection connection, long jobId) throws SQLException {
         String sql = """
                 SELECT j.status, j.labor_charge_cents, p.id AS part_id, p.part_name, p.quantity, p.unit_price_cents
                 FROM service_jobs j
@@ -164,8 +205,7 @@ final class ServiceRepository {
                 WHERE j.id = ?
                 ORDER BY p.id
                 """;
-        try (Connection connection = Database.connect();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, jobId);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) {

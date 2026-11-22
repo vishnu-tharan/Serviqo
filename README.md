@@ -1,6 +1,6 @@
 # Serviqo
 
-Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, registered vehicles, service jobs, and repair charges in a local SQLite database.
+Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, registered vehicles, service jobs, and repair charges in a local SQLite database and prints invoices for completed jobs.
 
 ## Run on Windows
 
@@ -62,5 +62,14 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 3. Click **Set labor charge** to record labor in LKR. Prices and charges accept up to two decimal places.
 4. Check the calculated line totals, parts subtotal, labor charge, and grand total. For example, two units of engine oil at Rs. 2,000.00 each, one oil filter at Rs. 1,500.00, and Rs. 2,500.00 for labor should total Rs. 8,000.00.
 5. Close and reopen the job to confirm the charges were saved. After completing or cancelling the job, reopen **Parts and labor** to view the saved charges in read-only mode.
+
+## Preview and print invoices
+
+1. In **Service Jobs**, select a **Completed** job and click **Preview invoice**.
+2. Check the invoice number, invoice date, customer name and phone, vehicle details, repairs, parts, and charges. For example, job 123 always uses invoice number `SRV-000123`. The invoice date comes from the saved UTC completion date, with the service date used for older jobs without a completion timestamp.
+3. Click **Print invoice** to open the Windows print dialog. Choose your printer or **Microsoft Print to PDF** if it is installed.
+4. Select a pending, in-progress, or cancelled job and confirm that **Preview invoice** is disabled.
+
+`InvoicePrinter.java` builds the preview from the saved job and sends it to the selected printer through Java's built-in printing support.
 
 If `mvn` is unrecognized, check that Maven's `bin` directory is on the Windows `PATH` and reopen the terminal. If Maven reports a different Java version, check that `JAVA_HOME` points to JDK 21. If Serviqo reports a database startup error, confirm the project folder is writable.

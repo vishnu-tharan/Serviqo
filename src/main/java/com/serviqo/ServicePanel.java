@@ -60,6 +60,7 @@ final class ServicePanel extends JPanel {
     private final JLabel count = new JLabel(" ");
     private final JButton detailsButton = new JButton("Open job");
     private final JButton chargesButton = new JButton("Parts and labor");
+    private final JButton invoiceButton = new JButton("Preview invoice");
     private List<ServiceRepository.Job> jobs = List.of();
 
     ServicePanel() {
@@ -96,31 +97,46 @@ final class ServicePanel extends JPanel {
         actions.add(add);
         actions.add(detailsButton);
         actions.add(chargesButton);
+        actions.add(invoiceButton);
         footer.add(actions, BorderLayout.NORTH);
         footer.add(count, BorderLayout.SOUTH);
         add(footer, BorderLayout.SOUTH);
 
         add.addActionListener(event -> showNewJob());
         detailsButton.addActionListener(event -> {
-            int row = table.getSelectedRow();
-            if (row >= 0) {
-                showJob(jobs.get(table.convertRowIndexToModel(row)));
+            ServiceRepository.Job job = selectedJob();
+            if (job != null) {
+                showJob(job);
             }
         });
         chargesButton.addActionListener(event -> {
-            int row = table.getSelectedRow();
-            if (row >= 0) {
-                showCharges(jobs.get(table.convertRowIndexToModel(row)));
+            ServiceRepository.Job job = selectedJob();
+            if (job != null) {
+                showCharges(job);
+            }
+        });
+        invoiceButton.setToolTipText("Invoices are available for completed jobs.");
+        invoiceButton.addActionListener(event -> {
+            ServiceRepository.Job job = selectedJob();
+            if (job != null) {
+                showInvoice(job.id());
             }
         });
         detailsButton.setEnabled(false);
         chargesButton.setEnabled(false);
+        invoiceButton.setEnabled(false);
         table.getSelectionModel().addListSelectionListener(event -> {
-            boolean selected = table.getSelectedRow() >= 0;
-            detailsButton.setEnabled(selected);
-            chargesButton.setEnabled(selected);
+            ServiceRepository.Job job = selectedJob();
+            detailsButton.setEnabled(job != null);
+            chargesButton.setEnabled(job != null);
+            invoiceButton.setEnabled(job != null && job.status() == ServiceRepository.Status.COMPLETED);
         });
         filter.addActionListener(event -> applyFilter());
+    }
+
+    private ServiceRepository.Job selectedJob() {
+        int row = table.getSelectedRow();
+        return row < 0 ? null : jobs.get(table.convertRowIndexToModel(row));
     }
 
     void refresh() {
@@ -303,6 +319,17 @@ final class ServicePanel extends JPanel {
                     JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, new String[]{"Close"}, "Close");
         }
         refresh();
+    }
+
+    private void showInvoice(long jobId) {
+        try {
+            repository.findInvoice(jobId).ifPresentOrElse(invoice -> InvoicePrinter.showPreview(this, invoice), () -> {
+                showError("Invoices are available for completed jobs.");
+                refresh();
+            });
+        } catch (SQLException exception) {
+            showDatabaseError("Could not load the invoice.", exception);
+        }
     }
 
     private final class ChargesPanel extends JPanel {
