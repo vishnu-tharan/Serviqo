@@ -71,7 +71,8 @@ public final class Main {
         addScreen(sidebar, navigation, screens, layout, "Dashboard", "Database ready. Choose a section from the sidebar.");
         CustomerPanel customers = new CustomerPanel();
         addScreen(sidebar, navigation, screens, layout, "Customers", customers, customers::refresh);
-        addScreen(sidebar, navigation, screens, layout, "Vehicles", "Vehicle registration is planned for Phase 3.");
+        VehiclePanel vehicles = new VehiclePanel();
+        addScreen(sidebar, navigation, screens, layout, "Vehicles", vehicles, vehicles::refresh);
         addScreen(sidebar, navigation, screens, layout, "Service Jobs", "Job tracking is planned for Phase 4.");
         addScreen(sidebar, navigation, screens, layout, "Service History", "Service history is planned for Phase 7.");
 

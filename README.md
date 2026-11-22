@@ -1,6 +1,6 @@
 # Serviqo
 
-Serviqo is a Java desktop application for vehicle service and repair workshops. It currently provides sidebar navigation, local SQLite storage, and customer management.
+Serviqo is a Java desktop application for vehicle service and repair workshops. It currently provides sidebar navigation, local SQLite storage, customer management, and vehicle registration.
 
 ## Run on Windows
 
@@ -34,5 +34,15 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 5. Select a customer, click **Delete**, and confirm. A customer with a registered vehicle is protected from deletion.
 
 `CustomerPanel.java` handles the customer table, search, and forms. `CustomerRepository.java` uses prepared statements to load and save customer records in SQLite.
+
+## Manage vehicles
+
+1. Add the owner in **Customers**. Open **Vehicles**, click **Register vehicle**, and select that owner from the list.
+2. Enter the registration number, vehicle type, brand, and model. The manufacturing year and notes are optional. Save and check that the table shows the vehicle and its owner.
+3. Search by part of the registration number or owner name. Select a row and click **Edit** to update the vehicle.
+4. Try registering the same plate using lowercase letters. The app should report that the registration number is already in use.
+5. Reopen Serviqo and check that the vehicle and its changes are still present. In **Customers**, confirm that the owner is protected from deletion while the vehicle is registered.
+
+`VehiclePanel.java` handles the vehicle form, owner selection, and table. `VehicleRepository.java` reads the owner's name from the linked customer record and uses prepared statements to save vehicle details.
 
 If `mvn` is unrecognized, check that Maven's `bin` directory is on the Windows `PATH` and reopen the terminal. If Maven reports a different Java version, check that `JAVA_HOME` points to JDK 21. If Serviqo reports a database startup error, confirm the project folder is writable.
