@@ -69,7 +69,8 @@ public final class Main {
 
         ButtonGroup navigation = new ButtonGroup();
         addScreen(sidebar, navigation, screens, layout, "Dashboard", "Database ready. Choose a section from the sidebar.");
-        addScreen(sidebar, navigation, screens, layout, "Customers", "Customer management is planned for Phase 2.");
+        CustomerPanel customers = new CustomerPanel();
+        addScreen(sidebar, navigation, screens, layout, "Customers", customers, customers::refresh);
         addScreen(sidebar, navigation, screens, layout, "Vehicles", "Vehicle registration is planned for Phase 3.");
         addScreen(sidebar, navigation, screens, layout, "Service Jobs", "Job tracking is planned for Phase 4.");
         addScreen(sidebar, navigation, screens, layout, "Service History", "Service history is planned for Phase 7.");
@@ -81,6 +82,20 @@ public final class Main {
 
     private static void addScreen(JPanel sidebar, ButtonGroup navigation, JPanel screens,
                                   CardLayout layout, String title, String message) {
+        JLabel detail = new JLabel(message);
+        detail.setForeground(TEXT);
+        detail.setFont(detail.getFont().deriveFont(15f));
+        detail.setOpaque(true);
+        detail.setBackground(Color.WHITE);
+        detail.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        JPanel body = new JPanel(new BorderLayout());
+        body.setOpaque(false);
+        body.add(detail, BorderLayout.NORTH);
+        addScreen(sidebar, navigation, screens, layout, title, body, null);
+    }
+
+    private static void addScreen(JPanel sidebar, ButtonGroup navigation, JPanel screens,
+                                  CardLayout layout, String title, JPanel body, Runnable onOpen) {
         JToggleButton button = new JToggleButton(title);
         button.setFont(button.getFont().deriveFont(Font.BOLD, 14f));
         button.setForeground(Color.WHITE);
@@ -91,7 +106,12 @@ public final class Main {
         button.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 12));
         button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
         button.addItemListener(event -> button.setBackground(button.isSelected() ? BLUE : NAVY));
-        button.addActionListener(event -> layout.show(screens, title));
+        button.addActionListener(event -> {
+            layout.show(screens, title);
+            if (onOpen != null) {
+                onOpen.run();
+            }
+        });
         navigation.add(button);
         sidebar.add(button);
         sidebar.add(Box.createVerticalStrut(5));
@@ -107,15 +127,6 @@ public final class Main {
         heading.setFont(heading.getFont().deriveFont(Font.BOLD, 30f));
         screen.add(heading, BorderLayout.NORTH);
 
-        JLabel detail = new JLabel(message);
-        detail.setForeground(TEXT);
-        detail.setFont(detail.getFont().deriveFont(15f));
-        detail.setOpaque(true);
-        detail.setBackground(Color.WHITE);
-        detail.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        JPanel body = new JPanel(new BorderLayout());
-        body.setOpaque(false);
-        body.add(detail, BorderLayout.NORTH);
         screen.add(body, BorderLayout.CENTER);
         screens.add(screen, title);
     }
