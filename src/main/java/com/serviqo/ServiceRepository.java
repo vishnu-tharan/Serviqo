@@ -1,5 +1,6 @@
 package com.serviqo;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -49,6 +50,45 @@ final class ServiceRepository {
 
     record Job(long id, String registration, String owner, String vehicle, String problem,
                String description, String serviceDate, Status status, String completedAt) {
+    }
+
+    record PartDetails(String name, long quantity, long unitPriceCents) {
+        PartDetails {
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("Enter the part name.");
+            }
+            if (quantity <= 0) {
+                throw new IllegalArgumentException("Enter a whole-number quantity greater than zero.");
+            }
+            if (unitPriceCents < 0) {
+                throw new IllegalArgumentException("Enter a non-negative unit price.");
+            }
+        }
+
+        BigDecimal total() {
+            return BigDecimal.valueOf(unitPriceCents, 2).multiply(BigDecimal.valueOf(quantity));
+        }
+    }
+
+    record Part(long id, PartDetails details) {
+    }
+
+    record Costs(Status status, long laborCents, List<Part> parts) {
+        Costs {
+            parts = List.copyOf(parts);
+        }
+
+        BigDecimal partsTotal() {
+            BigDecimal total = BigDecimal.ZERO;
+            for (Part part : parts) {
+                total = total.add(part.details().total());
+            }
+            return total;
+        }
+
+        BigDecimal grandTotal() {
+            return partsTotal().add(BigDecimal.valueOf(laborCents, 2));
+        }
     }
 
     List<Job> findAll() throws SQLException {
@@ -114,5 +154,110 @@ final class ServiceRepository {
             statement.setString(6, job.description());
             return statement.executeUpdate() == 1;
         }
+    }
+
+    Costs loadCosts(long jobId) throws SQLException {
+        String sql = """
+                SELECT j.status, j.labor_charge_cents, p.id AS part_id, p.part_name, p.quantity, p.unit_price_cents
+                FROM service_jobs j
+                LEFT JOIN service_parts p ON p.service_job_id = j.id
+                WHERE j.id = ?
+                ORDER BY p.id
+                """;
+        try (Connection connection = Database.connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, jobId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new SQLException("Service job #" + jobId + " could not be found.");
+                }
+                Status status = Status.fromLabel(rows.getString("status"));
+                long laborCents = rows.getLong("labor_charge_cents");
+                List<Part> parts = new ArrayList<>();
+                do {
+                    long partId = rows.getLong("part_id");
+                    if (!rows.wasNull()) {
+                        PartDetails details = new PartDetails(rows.getString("part_name"), rows.getLong("quantity"),
+                                rows.getLong("unit_price_cents"));
+                        parts.add(new Part(partId, details));
+                    }
+                } while (rows.next());
+                return new Costs(status, laborCents, parts);
+            }
+        }
+    }
+
+    boolean addPart(long jobId, PartDetails details) throws SQLException {
+        String sql = """
+                INSERT INTO service_parts (part_name, quantity, unit_price_cents, service_job_id)
+                SELECT ?, ?, ?, id FROM service_jobs WHERE id = ? AND status IN ('Pending', 'In Progress')
+                """;
+        try (Connection connection = Database.connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            bindPartDetails(statement, 1, details);
+            statement.setLong(4, jobId);
+            return statement.executeUpdate() == 1;
+        }
+    }
+
+    boolean updatePart(long jobId, Part original, PartDetails details) throws SQLException {
+        String sql = """
+                UPDATE service_parts
+                SET part_name = ?, quantity = ?, unit_price_cents = ?
+                WHERE service_job_id = ? AND id = ? AND part_name = ? AND quantity = ? AND unit_price_cents = ?
+                  AND EXISTS (
+                      SELECT 1 FROM service_jobs
+                      WHERE id = service_parts.service_job_id AND status IN ('Pending', 'In Progress')
+                  )
+                """;
+        try (Connection connection = Database.connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            bindPartDetails(statement, 1, details);
+            statement.setLong(4, jobId);
+            statement.setLong(5, original.id());
+            bindPartDetails(statement, 6, original.details());
+            return statement.executeUpdate() == 1;
+        }
+    }
+
+    boolean removePart(long jobId, Part original) throws SQLException {
+        String sql = """
+                DELETE FROM service_parts
+                WHERE service_job_id = ? AND id = ? AND part_name = ? AND quantity = ? AND unit_price_cents = ?
+                  AND EXISTS (
+                      SELECT 1 FROM service_jobs
+                      WHERE id = service_parts.service_job_id AND status IN ('Pending', 'In Progress')
+                  )
+                """;
+        try (Connection connection = Database.connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, jobId);
+            statement.setLong(2, original.id());
+            bindPartDetails(statement, 3, original.details());
+            return statement.executeUpdate() == 1;
+        }
+    }
+
+    boolean updateLabor(long jobId, long previousCents, long laborCents) throws SQLException {
+        if (laborCents < 0) {
+            throw new IllegalArgumentException("Enter a non-negative labor charge.");
+        }
+        String sql = """
+                UPDATE service_jobs SET labor_charge_cents = ?
+                WHERE id = ? AND labor_charge_cents = ? AND status IN ('Pending', 'In Progress')
+                """;
+        try (Connection connection = Database.connect();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, laborCents);
+            statement.setLong(2, jobId);
+            statement.setLong(3, previousCents);
+            return statement.executeUpdate() == 1;
+        }
+    }
+
+    private static void bindPartDetails(PreparedStatement statement, int firstParameter, PartDetails details) throws SQLException {
+        statement.setString(firstParameter, details.name());
+        statement.setLong(firstParameter + 1, details.quantity());
+        statement.setLong(firstParameter + 2, details.unitPriceCents());
     }
 }

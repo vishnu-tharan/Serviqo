@@ -1,6 +1,6 @@
 # Serviqo
 
-Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, registered vehicles, and service jobs in a local SQLite database.
+Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, registered vehicles, service jobs, and repair charges in a local SQLite database.
 
 ## Run on Windows
 
@@ -54,5 +54,13 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 5. Use the **Status** filter to show jobs in a particular state. Reopen Serviqo to confirm that the job, repair description, and status are still saved.
 
 `ServicePanel.java` handles the service job forms and table. `ServiceRepository.java` saves jobs and enforces the status transitions.
+
+## Record parts and labor
+
+1. Select a job in **Service Jobs** and open **Parts and labor**. Charges can be changed while a job is **Pending** or **In Progress**.
+2. Click **Add part** and enter a name, a positive whole-number quantity, and a unit price in LKR. Use **Edit part** or **Remove part** to change a saved line.
+3. Click **Set labor charge** to record labor in LKR. Prices and charges accept up to two decimal places.
+4. Check the calculated line totals, parts subtotal, labor charge, and grand total. For example, two units of engine oil at Rs. 2,000.00 each, one oil filter at Rs. 1,500.00, and Rs. 2,500.00 for labor should total Rs. 8,000.00.
+5. Close and reopen the job to confirm the charges were saved. After completing or cancelling the job, reopen **Parts and labor** to view the saved charges in read-only mode.
 
 If `mvn` is unrecognized, check that Maven's `bin` directory is on the Windows `PATH` and reopen the terminal. If Maven reports a different Java version, check that `JAVA_HOME` points to JDK 21. If Serviqo reports a database startup error, confirm the project folder is writable.
