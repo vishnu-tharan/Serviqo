@@ -67,6 +67,7 @@ final class ServiceRepository {
     }
 
     Dashboard loadDashboard() throws SQLException {
+        StaffAccounts.requireSignedIn();
         String countsSql = """
                 SELECT (SELECT COUNT(*) FROM customers) AS customers,
                        (SELECT COUNT(*) FROM vehicles) AS vehicles,
@@ -86,7 +87,7 @@ final class ServiceRepository {
                 }
             }
 
-            BigDecimal completedValue = loadCompletedValue(connection);
+            BigDecimal completedValue = StaffAccounts.isManager() ? loadCompletedValue(connection) : BigDecimal.ZERO;
             Dashboard dashboard;
             try (PreparedStatement statement = connection.prepareStatement(countsSql);
                  ResultSet counts = statement.executeQuery()) {
@@ -172,14 +173,26 @@ final class ServiceRepository {
         }
     }
 
-    List<Job> findAll() throws SQLException {
-        String sql = JOB_QUERY + "ORDER BY j.service_date DESC, j.id DESC";
+    List<Job> search(String query, String status, long offset) throws SQLException {
+        StaffAccounts.requireSignedIn();
+        String sql = JOB_QUERY + """
+                WHERE (? IS NULL OR j.status = ?)
+                  AND (instr(lower(v.registration_number), lower(?)) > 0 OR instr(lower(c.name), lower(?)) > 0)
+                ORDER BY j.service_date DESC, j.id DESC
+                LIMIT ? OFFSET ?
+                """;
         List<Job> jobs = new ArrayList<>();
         try (Connection connection = Database.connect();
-             PreparedStatement statement = connection.prepareStatement(sql);
-             ResultSet rows = statement.executeQuery()) {
-            while (rows.next()) {
-                jobs.add(readJob(rows));
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, status);
+            statement.setString(2, status);
+            statement.setString(3, query);
+            statement.setString(4, query);
+            Database.bindPage(statement, 5, offset);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    jobs.add(readJob(rows));
+                }
             }
         }
         return jobs;
@@ -194,6 +207,7 @@ final class ServiceRepository {
     }
 
     Optional<Invoice> findInvoice(long jobId) throws SQLException {
+        StaffAccounts.requireManager();
         String sql = JOB_QUERY + "WHERE j.id = ? AND j.status = 'Completed'";
         try (Connection connection = Database.connect()) {
             connection.setAutoCommit(false);
@@ -216,21 +230,27 @@ final class ServiceRepository {
     }
 
     void add(NewJob job) throws SQLException {
+        StaffAccounts.requireSignedIn();
         String sql = """
                 INSERT INTO service_jobs (vehicle_id, reported_problem, service_description, service_date)
                 VALUES (?, ?, ?, ?)
                 """;
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             statement.setLong(1, job.vehicleId());
             statement.setString(2, job.problem());
             statement.setString(3, job.description());
             statement.setString(4, job.serviceDate());
-            statement.executeUpdate();
+            StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, "Created service job", null);
         }
     }
 
     boolean update(Job job, String description, Status newStatus) throws SQLException {
+        StaffAccounts.requireSignedIn();
+        if (newStatus == Status.CANCELLED || newStatus == Status.COMPLETED) {
+            StaffAccounts.requireManager();
+        }
         Status currentStatus = job.status();
         if (!currentStatus.isActive() || (newStatus != currentStatus && !currentStatus.nextStatuses().contains(newStatus))) {
             throw new IllegalArgumentException("This service status change is not allowed.");
@@ -244,17 +264,21 @@ final class ServiceRepository {
                 """;
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             statement.setString(1, description);
             statement.setString(2, newStatus.toString());
             statement.setString(3, newStatus.toString());
             statement.setLong(4, job.id());
             statement.setString(5, currentStatus.toString());
             statement.setString(6, job.description());
-            return statement.executeUpdate() == 1;
+            String action = newStatus == currentStatus ? "Updated service job repair description"
+                    : "Updated service job (" + currentStatus + " to " + newStatus + ")";
+            return StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, action, job.id());
         }
     }
 
     Costs loadCosts(long jobId) throws SQLException {
+        StaffAccounts.requireManager();
         try (Connection connection = Database.connect()) {
             return loadCosts(connection, jobId);
         }
@@ -267,9 +291,11 @@ final class ServiceRepository {
                 LEFT JOIN service_parts p ON p.service_job_id = j.id
                 WHERE j.id = ?
                 ORDER BY p.id
+                LIMIT ?
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, jobId);
+            statement.setInt(2, Database.PARTS_PER_JOB + 1);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) {
                     throw new SQLException("Service job #" + jobId + " could not be found.");
@@ -280,6 +306,9 @@ final class ServiceRepository {
                 do {
                     long partId = rows.getLong("part_id");
                     if (!rows.wasNull()) {
+                        if (parts.size() == Database.PARTS_PER_JOB) {
+                            throw new SQLException("This older job exceeds the " + Database.PARTS_PER_JOB + "-part display limit.");
+                        }
                         PartDetails details = new PartDetails(rows.getString("part_name"), rows.getLong("quantity"),
                                 rows.getLong("unit_price_cents"));
                         parts.add(new Part(partId, details));
@@ -291,19 +320,22 @@ final class ServiceRepository {
     }
 
     boolean addPart(long jobId, PartDetails details) throws SQLException {
+        StaffAccounts.requireManager();
         String sql = """
                 INSERT INTO service_parts (part_name, quantity, unit_price_cents, service_job_id)
                 SELECT ?, ?, ?, id FROM service_jobs WHERE id = ? AND status IN ('Pending', 'In Progress')
                 """;
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             bindPartDetails(statement, 1, details);
             statement.setLong(4, jobId);
-            return statement.executeUpdate() == 1;
+            return StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, "Added part to service job #" + jobId, null);
         }
     }
 
     boolean updatePart(long jobId, Part original, PartDetails details) throws SQLException {
+        StaffAccounts.requireManager();
         String sql = """
                 UPDATE service_parts
                 SET part_name = ?, quantity = ?, unit_price_cents = ?
@@ -315,15 +347,21 @@ final class ServiceRepository {
                 """;
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             bindPartDetails(statement, 1, details);
             statement.setLong(4, jobId);
             statement.setLong(5, original.id());
             bindPartDetails(statement, 6, original.details());
-            return statement.executeUpdate() == 1;
+            PartDetails previous = original.details();
+            String action = "Updated part on job #" + jobId + " (quantity " + previous.quantity() + " to "
+                    + details.quantity() + ", unit price " + previous.unitPriceCents() + " to "
+                    + details.unitPriceCents() + " cents)";
+            return StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, action, original.id());
         }
     }
 
     boolean removePart(long jobId, Part original) throws SQLException {
+        StaffAccounts.requireManager();
         String sql = """
                 DELETE FROM service_parts
                 WHERE service_job_id = ? AND id = ? AND part_name = ? AND quantity = ? AND unit_price_cents = ?
@@ -334,14 +372,16 @@ final class ServiceRepository {
                 """;
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             statement.setLong(1, jobId);
             statement.setLong(2, original.id());
             bindPartDetails(statement, 3, original.details());
-            return statement.executeUpdate() == 1;
+            return StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, "Removed part from service job #" + jobId, original.id());
         }
     }
 
     boolean updateLabor(long jobId, long previousCents, long laborCents) throws SQLException {
+        StaffAccounts.requireManager();
         if (laborCents < 0) {
             throw new IllegalArgumentException("Enter a non-negative labor charge.");
         }
@@ -351,10 +391,12 @@ final class ServiceRepository {
                 """;
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             statement.setLong(1, laborCents);
             statement.setLong(2, jobId);
             statement.setLong(3, previousCents);
-            return statement.executeUpdate() == 1;
+            String action = "Updated labor charge from " + previousCents + " to " + laborCents + " cents";
+            return StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, action, jobId);
         }
     }
 

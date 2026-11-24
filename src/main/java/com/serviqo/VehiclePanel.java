@@ -6,7 +6,6 @@ import java.awt.GridBagLayout;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
@@ -17,16 +16,11 @@ import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
-import javax.swing.RowFilter;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.sqlite.SQLiteException;
 
 final class VehiclePanel extends JPanel {
-    private static final String[] VEHICLE_TYPES = {"Car", "Motorcycle", "Van", "Three-wheeler", "Truck", "Other"};
-
     private record Owner(long id, String name, String phone) {
         @Override
         public String toString() {
@@ -55,6 +49,7 @@ final class VehiclePanel extends JPanel {
     private final JTable table = new JTable(model);
     private final TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(model);
     private final JTextField search = new JTextField();
+    private final Main.PageControls pages = new Main.PageControls((controls, offset) -> loadPage(offset));
     private final JLabel status = new JLabel(" ");
     private final JButton edit = new JButton("Edit");
     private List<VehicleRepository.Vehicle> vehicles = List.of();
@@ -88,6 +83,7 @@ final class VehiclePanel extends JPanel {
         actions.add(add);
         actions.add(edit);
         footer.add(actions, BorderLayout.NORTH);
+        footer.add(pages, BorderLayout.EAST);
         footer.add(status, BorderLayout.SOUTH);
         add(footer, BorderLayout.SOUTH);
 
@@ -100,77 +96,54 @@ final class VehiclePanel extends JPanel {
         });
         edit.setEnabled(false);
         table.getSelectionModel().addListSelectionListener(event -> edit.setEnabled(table.getSelectedRow() >= 0));
-
-        search.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent event) {
-                filterVehicles();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent event) {
-                filterVehicles();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent event) {
-                filterVehicles();
-            }
-        });
+        Main.watchSearch(search, pages::reset);
     }
 
     void refresh() {
+        pages.reset();
+    }
+
+    private void loadPage(long offset) {
         try {
-            vehicles = repository.findAll();
+            vehicles = repository.search(search.getText().strip(), offset);
         } catch (SQLException exception) {
             vehicles = List.of();
             model.setRowCount(0);
+            pages.update(offset, 0);
             status.setText("Vehicle records could not be loaded.");
             showDatabaseError("Could not load vehicles.", exception);
             return;
         }
         model.setRowCount(0);
-        for (VehicleRepository.Vehicle vehicle : vehicles) {
+        for (VehicleRepository.Vehicle vehicle : vehicles.subList(0, Math.min(vehicles.size(), Database.PAGE_SIZE))) {
             VehicleRepository.Details details = vehicle.details();
             model.addRow(new Object[]{vehicle.id(), details.registration(), vehicle.owner(), details.type(),
                     details.brand(), details.model(), details.year()});
         }
-        filterVehicles();
-    }
-
-    private void filterVehicles() {
-        String query = search.getText().strip();
-        sorter.setRowFilter(query.isEmpty() ? null : RowFilter.regexFilter("(?iu)" + Pattern.quote(query), 1, 2));
-        int count = table.getRowCount();
-        if (count == 0) {
-            status.setText(query.isEmpty() ? "No vehicles registered." : "No matching vehicles.");
-        } else {
-            status.setText(count == 1 ? "1 vehicle" : count + " vehicles");
-        }
+        pages.update(offset, vehicles.size());
+        status.setText(table.getRowCount() == 0 ? "No matching vehicles." : table.getRowCount() + " vehicles on this page");
     }
 
     private void showForm(VehicleRepository.Vehicle vehicle) {
-        List<CustomerRepository.Customer> owners;
-        try {
-            owners = customers.findAll();
-        } catch (SQLException exception) {
-            showDatabaseError("Could not load customers.", exception);
-            return;
-        }
-        if (owners.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Add a customer in Customers before registering a vehicle.",
-                    "Vehicles", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        JComboBox<Owner> ownerBox = new JComboBox<>();
-        ownerBox.setPrototypeDisplayValue(new Owner(9999, "Choose an existing customer", "0771234567"));
-        for (CustomerRepository.Customer customer : owners) {
-            ownerBox.addItem(new Owner(customer.id(), customer.name(), customer.phone()));
-        }
-        ownerBox.setSelectedIndex(-1);
+        var currentOwner = new java.util.concurrent.atomic.AtomicLong(vehicle == null ? 0 : vehicle.details().customerId());
+        JTextField owner = new JTextField(vehicle == null ? "" : vehicle.owner(), 20);
+        owner.setEditable(false);
+        JButton chooseOwner = new JButton("Choose owner");
+        chooseOwner.addActionListener(event -> {
+            CustomerRepository.Customer selected = Main.pickRecord(owner, "Choose vehicle owner", "Name, phone or ID",
+                    customers::search, customer -> new Owner(customer.id(), customer.name(), customer.phone()).toString());
+            if (selected != null) {
+                currentOwner.set(selected.id());
+                owner.setText(selected.name());
+                owner.setCaretPosition(0);
+            }
+        });
+        JPanel ownerRow = new JPanel(new BorderLayout(8, 0));
+        ownerRow.add(owner, BorderLayout.CENTER);
+        ownerRow.add(chooseOwner, BorderLayout.EAST);
         JTextField registration = new JTextField(20);
-        JComboBox<String> type = new JComboBox<>(VEHICLE_TYPES);
+        JComboBox<String> type = new JComboBox<>(Database.VEHICLE_TYPES.toArray(String[]::new));
+        Main.usePlainText(type);
         JTextField brand = new JTextField(20);
         JTextField modelField = new JTextField(20);
         JTextField year = new JTextField(20);
@@ -180,12 +153,6 @@ final class VehiclePanel extends JPanel {
 
         if (vehicle != null) {
             VehicleRepository.Details details = vehicle.details();
-            for (int index = 0; index < ownerBox.getItemCount(); index++) {
-                if (ownerBox.getItemAt(index).id() == details.customerId()) {
-                    ownerBox.setSelectedIndex(index);
-                    break;
-                }
-            }
             registration.setText(details.registration());
             type.setSelectedItem(details.type());
             if (!details.type().equals(type.getSelectedItem())) {
@@ -198,8 +165,14 @@ final class VehiclePanel extends JPanel {
             notes.setText(details.notes());
         }
 
+        Main.limitText(registration, Database.REGISTRATION);
+        Main.limitText(brand, Database.VEHICLE_DETAIL);
+        Main.limitText(modelField, Database.VEHICLE_DETAIL);
+        Main.limitText(year, 4);
+        Main.limitText(notes, Database.NOTES);
+
         JPanel form = new JPanel(new GridBagLayout());
-        Main.addField(form, 0, "Owner", ownerBox);
+        Main.addField(form, 0, "Owner", ownerRow);
         Main.addField(form, 1, "Registration number", registration);
         Main.addField(form, 2, "Vehicle type", type);
         Main.addField(form, 3, "Brand", brand);
@@ -212,8 +185,7 @@ final class VehiclePanel extends JPanel {
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
             VehicleRepository.Details details;
             try {
-                Owner owner = (Owner) ownerBox.getSelectedItem();
-                details = readDetails(owner == null ? 0 : owner.id(), registration.getText(),
+                details = readDetails(currentOwner.get(), registration.getText(),
                         (String) type.getSelectedItem(), brand.getText(), modelField.getText(), year.getText(), notes.getText());
             } catch (IllegalArgumentException exception) {
                 showError(exception.getMessage());
@@ -252,6 +224,11 @@ final class VehiclePanel extends JPanel {
         }
         String plate = registration.strip().toUpperCase(Locale.ROOT).replaceAll("\\s+", " ")
                 .replaceAll(" *- *", "-");
+        Database.requireLength(plate, Database.REGISTRATION, "Registration number");
+        Database.requireLength(type, Database.VEHICLE_TYPE, "Vehicle type");
+        Database.requireLength(brand, Database.VEHICLE_DETAIL, "Brand");
+        Database.requireLength(model, Database.VEHICLE_DETAIL, "Model");
+        Database.requireLength(notes, Database.NOTES, "Notes");
         if (plate.isEmpty()) {
             throw new IllegalArgumentException("Enter the registration number.");
         }
@@ -268,7 +245,7 @@ final class VehiclePanel extends JPanel {
 
     private void showDatabaseError(String message, SQLException exception) {
         System.err.println(message + " " + exception.getMessage());
-        showError(message + " Check that the database is accessible and try again.");
+        showError(Database.userError(exception, message + " Check that the database is accessible and try again."));
     }
 
     private void showError(String message) {

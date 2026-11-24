@@ -6,7 +6,6 @@ import java.awt.FlowLayout;
 import java.awt.GridBagLayout;
 import java.sql.SQLException;
 import java.util.List;
-import java.util.regex.Pattern;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -16,9 +15,6 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
-import javax.swing.RowFilter;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 
@@ -39,6 +35,7 @@ final class CustomerPanel extends JPanel {
     private final JTable table = new JTable(model);
     private final TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(model);
     private final JTextField search = new JTextField();
+    private final Main.PageControls pages = new Main.PageControls((controls, offset) -> loadPage(offset));
     private final JLabel status = new JLabel(" ");
     private final JButton edit = new JButton("Edit");
     private final JButton delete = new JButton("Delete");
@@ -73,6 +70,7 @@ final class CustomerPanel extends JPanel {
         actions.add(edit);
         actions.add(delete);
         footer.add(actions, BorderLayout.NORTH);
+        footer.add(pages, BorderLayout.EAST);
         status.setForeground(Color.decode("#344054"));
         footer.add(status, BorderLayout.SOUTH);
         add(footer, BorderLayout.SOUTH);
@@ -82,53 +80,32 @@ final class CustomerPanel extends JPanel {
         delete.addActionListener(event -> deleteSelectedCustomer());
         table.getSelectionModel().addListSelectionListener(event -> updateSelectionButtons());
         updateSelectionButtons();
-
-        search.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent event) {
-                filterCustomers();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent event) {
-                filterCustomers();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent event) {
-                filterCustomers();
-            }
-        });
+        Main.watchSearch(search, pages::reset);
     }
 
     void refresh() {
+        pages.reset();
+    }
+
+    private void loadPage(long offset) {
         try {
-            customers = repository.findAll();
+            customers = repository.search(search.getText().strip(), offset);
         } catch (SQLException exception) {
             customers = List.of();
             model.setRowCount(0);
+            pages.update(offset, 0);
             status.setText("Customer records could not be loaded.");
             showDatabaseError("Could not load customers.", exception);
             return;
         }
 
         model.setRowCount(0);
-        for (CustomerRepository.Customer customer : customers) {
+        for (CustomerRepository.Customer customer : customers.subList(0, Math.min(customers.size(), Database.PAGE_SIZE))) {
             model.addRow(new Object[]{customer.id(), customer.name(), customer.phone(),
                     customer.email(), customer.address(), customer.createdAt()});
         }
-        filterCustomers();
-    }
-
-    private void filterCustomers() {
-        String query = search.getText().strip();
-        sorter.setRowFilter(query.isEmpty() ? null : RowFilter.regexFilter("(?iu)" + Pattern.quote(query), 1, 2));
-        int count = table.getRowCount();
-        if (count == 0) {
-            status.setText(query.isEmpty() ? "No customers yet." : "No matching customers.");
-        } else {
-            status.setText(count == 1 ? "1 customer" : count + " customers");
-        }
+        pages.update(offset, customers.size());
+        status.setText(table.getRowCount() == 0 ? "No matching customers." : table.getRowCount() + " customers on this page");
     }
 
     private CustomerRepository.Customer selectedCustomer() {
@@ -147,6 +124,10 @@ final class CustomerPanel extends JPanel {
         JTextField phone = new JTextField(customer == null ? "" : customer.phone(), 24);
         JTextField email = new JTextField(customer == null ? "" : customer.email(), 24);
         JTextField address = new JTextField(customer == null ? "" : customer.address(), 24);
+        Main.limitText(name, Database.NAME);
+        Main.limitText(phone, Database.PHONE);
+        Main.limitText(email, Database.EMAIL);
+        Main.limitText(address, Database.ADDRESS);
         JPanel form = new JPanel(new GridBagLayout());
         form.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
         Main.addField(form, 0, "Full name", name);
@@ -181,6 +162,14 @@ final class CustomerPanel extends JPanel {
     }
 
     static String validate(CustomerRepository.Details details) {
+        try {
+            Database.requireLength(details.name(), Database.NAME, "Full name");
+            Database.requireLength(details.phone(), Database.PHONE, "Phone number");
+            Database.requireLength(details.email(), Database.EMAIL, "Email address");
+            Database.requireLength(details.address(), Database.ADDRESS, "Address");
+        } catch (IllegalArgumentException exception) {
+            return exception.getMessage();
+        }
         if (details.name().isBlank()) {
             return "Enter the customer's full name.";
         }
@@ -221,7 +210,7 @@ final class CustomerPanel extends JPanel {
 
     private void showDatabaseError(String message, SQLException exception) {
         System.err.println(message + " " + exception.getMessage());
-        showError(message + " Check that the database is accessible and try again.");
+        showError(Database.userError(exception, message + " Check that the database is accessible and try again."));
     }
 
     private void showError(String message) {

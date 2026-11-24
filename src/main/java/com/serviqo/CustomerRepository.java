@@ -18,45 +18,59 @@ final class CustomerRepository {
         DELETED, HAS_VEHICLES, MISSING
     }
 
-    List<Customer> findAll() throws SQLException {
+    List<Customer> search(String query, long offset) throws SQLException {
+        StaffAccounts.requireManager();
         String sql = """
                 SELECT id, name, phone, email, address, created_at
                 FROM customers
+                WHERE instr(lower(name), lower(?)) > 0 OR instr(phone, ?) > 0
+                      OR CAST(id AS TEXT) = ?
                 ORDER BY name COLLATE NOCASE, id
+                LIMIT ? OFFSET ?
                 """;
         List<Customer> customers = new ArrayList<>();
         try (Connection connection = Database.connect();
-             PreparedStatement statement = connection.prepareStatement(sql);
-             ResultSet rows = statement.executeQuery()) {
-            while (rows.next()) {
-                customers.add(new Customer(rows.getLong("id"), rows.getString("name"),
-                        rows.getString("phone"), rows.getString("email"), rows.getString("address"),
-                        rows.getString("created_at")));
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, query);
+            statement.setString(2, query);
+            statement.setString(3, query);
+            Database.bindPage(statement, 4, offset);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    customers.add(new Customer(rows.getLong("id"), rows.getString("name"),
+                            rows.getString("phone"), rows.getString("email"), rows.getString("address"),
+                            rows.getString("created_at")));
+                }
             }
         }
         return customers;
     }
 
     void add(Details details) throws SQLException {
+        StaffAccounts.requireManager();
         String sql = "INSERT INTO customers (name, phone, email, address) VALUES (?, ?, ?, ?)";
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             setDetails(statement, details);
-            statement.executeUpdate();
+            StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, "Added customer", null);
         }
     }
 
     boolean update(long id, Details details) throws SQLException {
+        StaffAccounts.requireManager();
         String sql = "UPDATE customers SET name = ?, phone = ?, email = ?, address = ? WHERE id = ?";
         try (Connection connection = Database.connect();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            connection.setAutoCommit(false);
             setDetails(statement, details);
             statement.setLong(5, id);
-            return statement.executeUpdate() == 1;
+            return StaffAccounts.commitChange(connection, statement.executeUpdate() == 1, "Updated customer details", id);
         }
     }
 
     DeleteResult delete(long id) throws SQLException {
+        StaffAccounts.requireManager();
         String deleteSql = """
                 DELETE FROM customers
                 WHERE id = ? AND NOT EXISTS (
@@ -69,6 +83,7 @@ final class CustomerRepository {
             delete.setLong(1, id);
             DeleteResult result;
             if (delete.executeUpdate() == 1) {
+                StaffAccounts.recordChange(connection, "Deleted customer", id);
                 result = DeleteResult.DELETED;
             } else {
                 try (PreparedStatement check = connection.prepareStatement("SELECT 1 FROM customers WHERE id = ?")) {

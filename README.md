@@ -11,7 +11,34 @@ mvn compile dependency:copy-dependencies
 java -cp 'target/classes;target/dependency/*' com.serviqo.Main
 ```
 
-Maven downloads the build plugins and SQLite JDBC driver on the first build. After building, use the second command to launch Serviqo without internet access. Run it from the project folder so the app opens the same `serviqo.db` each time.
+Maven downloads the build plugins and SQLite JDBC driver on the first build. After building, use the second command to launch Serviqo without internet access.
+
+## Database storage and upgrade
+
+Serviqo opens `%LOCALAPPDATA%\Serviqo\serviqo.db` on Windows. The working directory does not select the database. Serviqo checks the Windows access rules before opening it and stops startup if the directory or database grants access to other ordinary accounts.
+
+If you already have a database from an older version, close all old Serviqo instances and import the database **before the first regular launch**. Run this from the project folder in PowerShell and replace the sample path with the absolute path of your trusted copy:
+
+```powershell
+java -cp 'target/classes;target/dependency/*' com.serviqo.Main --import-legacy 'C:\path\to\old\serviqo.db'
+```
+
+The import takes a SQLite snapshot, checks it, and leaves the original file in place. Import refuses to overwrite a database at the new location. If one already exists, keep both databases and back them up before deciding which to use.
+
+The SQLite database format is unencrypted. For encryption at rest, enable [Windows Device Encryption](https://support.microsoft.com/en-us/windows/security/encryption/device-encryption-in-windows) or BitLocker on the drive holding the database, and verify that protection is active. Keep the recovery key in a safe location and keep old database copies and backups on encrypted storage too. The drive protection complements Windows file permissions and Serviqo staff sign-in.
+
+## Staff accounts
+
+On the first launch for a database, the workshop owner creates the first **Manager** account and then signs in. Use a unique passphrase of 15 to 128 characters. Existing workshop records stay in place. Each separate demo database has its own staff accounts.
+
+| Role | Access |
+| --- | --- |
+| Manager | Customers, vehicles, all service actions, charges, invoices, staff account creation, and the recent audit log. |
+| Mechanic | Workshop job counts, vehicle selection for new jobs, service history, repair descriptions, and starting pending jobs. |
+
+A manager can open **Staff → Add staff account** to create an individual account. Use **Staff → Sign out** before handing the workstation to someone else. The database stores salted PBKDF2-HMAC-SHA256 password hashes. **Staff → View audit log** shows the latest 200 entries with the staff username, UTC timestamp, action, and affected record ID. Changes and their audit entries are saved in the same transaction.
+
+Staff permissions apply inside Serviqo. Windows account permissions control direct access to the SQLite file and audit records.
 
 ## How it works
 
@@ -20,7 +47,7 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 ## Manage customers
 
 1. Open **Customers** and click **Add customer**. Enter a full name and phone number. Email and address are optional. Saved customers appear in the table with their ID and registration date in UTC.
-2. Search by name or by part of the phone number. Clear the search field to show all customers again.
+2. Search by name, part of the phone number, or the customer ID. Clear the search field to show the unfiltered list. Use **Previous** and **Next** to browse results.
 3. Select a row, click **Edit**, and save a change. Close and reopen Serviqo to verify that it was saved.
 4. Try saving with a blank name, an invalid phone number, or an incomplete email address. The form should show a validation message and let you correct the field.
 5. Select a customer, click **Delete**, and confirm. A customer with a registered vehicle is protected from deletion.
@@ -29,7 +56,7 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 
 ## Manage vehicles
 
-1. Add the owner in **Customers**. Open **Vehicles**, click **Register vehicle**, and select that owner from the list.
+1. Add the owner in **Customers**. Open **Vehicles**, click **Register vehicle**, and use **Choose owner** to search and select the customer.
 2. Enter the registration number, vehicle type, brand, and model. The manufacturing year and notes are optional. Save and check that the table shows the vehicle and its owner.
 3. Search by part of the registration number or owner name. Select a row and click **Edit** to update the vehicle.
 4. Try registering the same plate using lowercase letters. The app should report that the registration number is already in use.
@@ -39,7 +66,7 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 
 ## Manage service jobs
 
-1. Register a customer's vehicle. Open **Service Jobs**, click **New job**, and select its registration number. The form shows the linked customer and vehicle details.
+1. Register a customer's vehicle. Open **Service Jobs**, click **New job**, then search for and select the registered vehicle. The form shows the linked customer and vehicle details.
 2. Enter the reported problem and a service date in `YYYY-MM-DD` format. The repair description is optional. Save the job and confirm it appears as **Pending**.
 3. Select the job and click **Open job** to edit the repair description or change the status. Set the job to **In Progress** before marking it **Completed**.
 4. A **Pending** or **In Progress** job can be marked **Cancelled**. Completed and cancelled jobs are read-only. Serviqo asks for confirmation before closing either way.
@@ -79,18 +106,10 @@ Maven downloads the build plugins and SQLite JDBC driver on the first build. Aft
 
 ## Demo workflow
 
-Use a fresh database for this exercise. After building the project, run the following from the project folder in PowerShell to open Serviqo with a separate demo database. Keep the same PowerShell session and repeat the `Push-Location` through `Pop-Location` block to reopen that demo.
+Use the separate demo database for this exercise. After building the project, run the following from the project folder in PowerShell. The first demo launch creates a fresh database under `%LOCALAPPDATA%\Serviqo\demo`. Repeat the command to reopen it.
 
 ```powershell
-$project = (Get-Location).Path
-$demo = Join-Path $env:TEMP ("serviqo-demo-" + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $demo | Out-Null
-Push-Location $demo
-try {
-    java -cp "${project}\target\classes;${project}\target\dependency\*" com.serviqo.Main
-} finally {
-    Pop-Location
-}
+java -cp 'target/classes;target/dependency/*' com.serviqo.Main --demo
 ```
 
 | Screen | Sample records |
@@ -100,7 +119,7 @@ try {
 | Service Jobs | Today's date, reported problem **Oil leak near the engine**, repair **Replaced the seal and changed the engine oil** |
 | Parts and labor | Engine oil, 2 × Rs. 2,000.00. Oil filter, 1 × Rs. 1,500.00. Labor, Rs. 2,500.00. |
 
-1. Create the records in order and check that the job starts as **Pending**. Set it to **In Progress** while recording the charges, then mark it **Completed**.
+1. Set up the first demo manager and sign in. Create the records in order and check that the job starts as **Pending**. Set it to **In Progress** while recording the charges, then mark it **Completed**.
 2. Open the invoice and check the **Rs. 8,000.00** grand total. Use the print dialog to print or select **Microsoft Print to PDF** if available.
 3. In **Service History**, search for `demo-1234` and filter by **Completed**. Confirm that the repair, charges, and invoice can be reopened.
 4. Try adding a customer with a blank name or using a duplicate registration. Try a part quantity of zero and a negative price on a separate active job. Each entry should be rejected. Try deleting Nila in **Customers** and confirm that her registered vehicle protects the record.
@@ -110,5 +129,26 @@ try {
 
 - **Maven command is missing.** Add Maven's `bin` directory to Windows `PATH` and reopen the terminal, or run `mvn.cmd` directly from that directory using its full path.
 - **Maven uses a different Java version.** Check that `JAVA_HOME` points to JDK 21 and that `mvn -version` reports the expected JDK.
-- **Database startup failed.** Check that the folder you launched from is writable and that `serviqo.db` is a valid SQLite file. Keep a backup of the file before repairing or replacing it.
+- **Database startup failed.** Check the terminal message and the permissions on `%LOCALAPPDATA%\Serviqo`. Keep a backup before repairing or replacing a database.
+- **Database is busy.** Serviqo waits up to about five seconds for another instance to release a write lock. If it is still busy, wait for the other operation to finish, then retry your action.
 - **Print failed.** Confirm that a printer or virtual printer is installed and try printing the invoice again from its preview.
+
+## Record limits
+
+Customer, vehicle, service job, and service history lists display up to 50 results per page. Searches and status filters apply to the whole database before paging.
+
+| Field | Maximum characters |
+| --- | ---: |
+| Customer name, part name | 120 |
+| Phone number, vehicle type | 40 |
+| Email | 254 |
+| Address | 300 |
+| Registration number | 32 |
+| Vehicle brand or model | 80 |
+| Vehicle notes | 1,000 |
+| Reported problem | 500 |
+| Repair description | 2,000 |
+
+The forms and database enforce these limits on new values. Existing text is retained during an upgrade. If a form flags an older value when saving, shorten it to the stated limit. A service job can display and print up to 500 part lines. Serviqo refuses to display or invoice an older job beyond that limit so it cannot show a partial total.
+
+SQLite also requires a vehicle brand, model, and supported type, and a real service date in `YYYY-MM-DD` format. The upgrade preserves old records and enforces these rules when affected fields are added or changed.

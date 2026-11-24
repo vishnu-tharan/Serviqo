@@ -42,7 +42,9 @@ final class DashboardPanel extends JPanel {
         statistics.add(statistic("Pending jobs", pending));
         statistics.add(statistic("In-progress jobs", inProgress));
         statistics.add(statistic("Completed jobs", completed));
-        statistics.add(statistic("Completed service value", completedValue));
+        if (StaffAccounts.isManager()) {
+            statistics.add(statistic("Completed service value", completedValue));
+        }
         add(statistics, BorderLayout.NORTH);
 
         JPanel activity = new JPanel(new BorderLayout(0, 8));
@@ -79,7 +81,9 @@ final class DashboardPanel extends JPanel {
                 } catch (ExecutionException exception) {
                     System.err.println("Could not load the dashboard. " + exception.getCause());
                     clear();
-                    status.setText("Could not load the dashboard. Select Dashboard to retry.");
+                    String fallback = "Could not load the dashboard. Select Dashboard to retry.";
+                    status.setText(exception.getCause() instanceof java.sql.SQLException databaseError
+                            ? Database.userError(databaseError, fallback) : fallback);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                     clear();
@@ -88,6 +92,14 @@ final class DashboardPanel extends JPanel {
             }
         };
         loading.execute();
+    }
+
+    @Override
+    public void removeNotify() {
+        if (loading != null) {
+            loading.cancel(true);
+        }
+        super.removeNotify();
     }
 
     private JPanel statistic(String title, JLabel value) {

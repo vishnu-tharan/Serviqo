@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
+import java.util.Objects;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
@@ -21,25 +21,12 @@ import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
-import javax.swing.RowFilter;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.sqlite.SQLiteErrorCode;
 import org.sqlite.SQLiteException;
 
 final class ServicePanel extends JPanel {
-    private static final int STATUS_COLUMN = 4;
-    private static final int REGISTRATION_COLUMN = 2;
-    private static final int CUSTOMER_COLUMN = 3;
-
-    private record VehicleOption(VehicleRepository.Vehicle vehicle) {
-        @Override
-        public String toString() {
-            return vehicle.details().registration();
-        }
-    }
 
     private final ServiceRepository repository = new ServiceRepository();
     private final VehicleRepository vehicles = new VehicleRepository();
@@ -60,6 +47,7 @@ final class ServicePanel extends JPanel {
     private final TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(model);
     private final JComboBox<String> filter = new JComboBox<>();
     private final JTextField search = new JTextField();
+    private final Main.PageControls pages = new Main.PageControls((controls, offset) -> loadPage(offset));
     private final JLabel count = new JLabel(" ");
     private final JButton detailsButton = new JButton("Open job");
     private final JButton chargesButton = new JButton("Parts and labor");
@@ -76,6 +64,7 @@ final class ServicePanel extends JPanel {
         JLabel filterLabel = new JLabel("Status");
         filterLabel.setLabelFor(filter);
         filterBar.add(filterLabel);
+        Main.usePlainText(filter);
         filter.addItem("All statuses");
         for (ServiceRepository.Status status : ServiceRepository.Status.values()) {
             filter.addItem(status.toString());
@@ -94,23 +83,7 @@ final class ServicePanel extends JPanel {
             filters.add(searchBar, BorderLayout.NORTH);
             filters.add(filterBar, BorderLayout.SOUTH);
             add(filters, BorderLayout.NORTH);
-
-            search.getDocument().addDocumentListener(new DocumentListener() {
-                @Override
-                public void insertUpdate(DocumentEvent event) {
-                    applyFilter();
-                }
-
-                @Override
-                public void removeUpdate(DocumentEvent event) {
-                    applyFilter();
-                }
-
-                @Override
-                public void changedUpdate(DocumentEvent event) {
-                    applyFilter();
-                }
-            });
+            Main.watchSearch(search, pages::reset);
         } else {
             add(filterBar, BorderLayout.NORTH);
         }
@@ -133,9 +106,12 @@ final class ServicePanel extends JPanel {
             actions.add(add);
         }
         actions.add(detailsButton);
-        actions.add(chargesButton);
-        actions.add(invoiceButton);
+        if (StaffAccounts.isManager()) {
+            actions.add(chargesButton);
+            actions.add(invoiceButton);
+        }
         footer.add(actions, BorderLayout.NORTH);
+        footer.add(pages, BorderLayout.EAST);
         footer.add(count, BorderLayout.SOUTH);
         add(footer, BorderLayout.SOUTH);
 
@@ -164,106 +140,69 @@ final class ServicePanel extends JPanel {
         table.getSelectionModel().addListSelectionListener(event -> {
             ServiceRepository.Job job = selectedJob();
             detailsButton.setEnabled(job != null);
-            chargesButton.setEnabled(job != null);
-            invoiceButton.setEnabled(job != null && job.status() == ServiceRepository.Status.COMPLETED);
+            chargesButton.setEnabled(job != null && StaffAccounts.isManager());
+            invoiceButton.setEnabled(job != null && StaffAccounts.isManager()
+                    && job.status() == ServiceRepository.Status.COMPLETED);
         });
-        filter.addActionListener(event -> applyFilter());
+        filter.addActionListener(event -> pages.reset());
     }
 
     private ServiceRepository.Job selectedJob() {
         int row = table.getSelectedRow();
-        return row < 0 ? null : jobs.get(table.convertRowIndexToModel(row));
+        int modelRow = row < 0 ? -1 : table.convertRowIndexToModel(row);
+        return modelRow < 0 || modelRow >= jobs.size() ? null : jobs.get(modelRow);
     }
 
     void refresh() {
+        pages.reset();
+    }
+
+    private void loadPage(long offset) {
         try {
-            jobs = repository.findAll();
+            String status = filter.getSelectedIndex() == 0 ? null : (String) filter.getSelectedItem();
+            jobs = repository.search(search.getText().strip(), status, offset);
         } catch (SQLException exception) {
             jobs = List.of();
             model.setRowCount(0);
             count.setText("Service jobs could not be loaded.");
+            pages.update(offset, 0);
             showDatabaseError("Could not load service jobs.", exception);
             return;
         }
         model.setRowCount(0);
-        for (ServiceRepository.Job job : jobs) {
+        for (ServiceRepository.Job job : jobs.subList(0, Math.min(jobs.size(), Database.PAGE_SIZE))) {
             model.addRow(new Object[]{job.id(), job.serviceDate(), job.registration(), job.owner(),
                     job.status().toString(), job.problem()});
         }
-        applyFilter();
-    }
-
-    private void applyFilter() {
-        String status = (String) filter.getSelectedItem();
-        String query = search.getText().strip();
-        RowFilter<DefaultTableModel, Integer> statusFilter = filter.getSelectedIndex() == 0 ? null
-                : RowFilter.regexFilter("^" + Pattern.quote(status) + "$", STATUS_COLUMN);
-        RowFilter<DefaultTableModel, Integer> searchFilter = query.isEmpty() ? null
-                : RowFilter.regexFilter("(?iu)" + Pattern.quote(query), REGISTRATION_COLUMN, CUSTOMER_COLUMN);
-        if (statusFilter != null && searchFilter != null) {
-            sorter.setRowFilter(RowFilter.andFilter(List.of(statusFilter, searchFilter)));
-        } else {
-            sorter.setRowFilter(statusFilter == null ? searchFilter : statusFilter);
-        }
-        int visible = table.getRowCount();
-        if (visible == 0) {
-            count.setText(query.isEmpty() && statusFilter == null ? "No service jobs yet." : "No matching service jobs.");
-        } else {
-            count.setText(visible == 1 ? "1 service job" : visible + " service jobs");
-        }
+        pages.update(offset, jobs.size());
+        count.setText(jobs.isEmpty() ? "No matching service jobs." : table.getRowCount() + " jobs on this page");
     }
 
     private void showNewJob() {
-        List<VehicleRepository.Vehicle> registeredVehicles;
-        try {
-            registeredVehicles = vehicles.findAll();
-        } catch (SQLException exception) {
-            showDatabaseError("Could not load registered vehicles.", exception);
+        VehicleRepository.Vehicle vehicle = Main.pickRecord(this, "Choose service vehicle", "Registration or owner",
+                vehicles::search, item -> item.details().registration() + " · " + item.owner());
+        if (vehicle == null) {
             return;
         }
-        if (registeredVehicles.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Register a vehicle in Vehicles before creating a service job.",
-                    "Service Jobs", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        JComboBox<VehicleOption> vehicleBox = new JComboBox<>();
-        for (VehicleRepository.Vehicle vehicle : registeredVehicles) {
-            vehicleBox.addItem(new VehicleOption(vehicle));
-        }
-        vehicleBox.setSelectedIndex(-1);
-        JTextField owner = readOnlyField("");
-        JTextField vehicleDetails = readOnlyField("");
-        vehicleBox.addActionListener(event -> {
-            VehicleOption option = (VehicleOption) vehicleBox.getSelectedItem();
-            if (option == null) {
-                owner.setText("");
-                vehicleDetails.setText("");
-                return;
-            }
-            VehicleRepository.Details details = option.vehicle().details();
-            owner.setText(option.vehicle().owner());
-            vehicleDetails.setText(details.brand() + " " + details.model() + " (" + details.type() + ")");
-            owner.setCaretPosition(0);
-            vehicleDetails.setCaretPosition(0);
-        });
-
+        VehicleRepository.Details details = vehicle.details();
+        String vehicleDescription = details.brand() + " " + details.model() + " (" + details.type() + ")";
         JTextField date = new JTextField(LocalDate.now().toString(), 26);
         JTextArea problem = textArea("");
         JTextArea description = textArea("");
+        Main.limitText(date, 10);
+        Main.limitText(problem, Database.PROBLEM);
+        Main.limitText(description, Database.DESCRIPTION);
         JPanel form = new JPanel(new GridBagLayout());
-        Main.addField(form, 0, "Registration", vehicleBox);
-        Main.addField(form, 1, "Customer", owner);
-        Main.addField(form, 2, "Vehicle", vehicleDetails);
+        Main.addField(form, 0, "Registration", readOnlyField(details.registration()));
+        Main.addField(form, 1, "Customer", readOnlyField(vehicle.owner()));
+        Main.addField(form, 2, "Vehicle", readOnlyField(vehicleDescription));
         Main.addField(form, 3, "Service date (YYYY-MM-DD)", date);
         Main.addField(form, 4, "Reported problem", new JScrollPane(problem));
         Main.addField(form, 5, "Repair description (optional)", new JScrollPane(description));
 
         while (confirmForm(form, "New service job")) {
-            VehicleOption option = (VehicleOption) vehicleBox.getSelectedItem();
             try {
-                long vehicleId = option == null ? 0 : option.vehicle().id();
-                repository.add(readNewJob(vehicleId, problem.getText(), description.getText(), date.getText()));
+                repository.add(readNewJob(vehicle.id(), problem.getText(), description.getText(), date.getText()));
             } catch (IllegalArgumentException exception) {
                 showError(exception.getMessage());
                 continue;
@@ -293,6 +232,8 @@ final class ServicePanel extends JPanel {
         if (problem.isBlank()) {
             throw new IllegalArgumentException("Enter the reported problem.");
         }
+        Database.requireLength(problem, Database.PROBLEM, "Reported problem");
+        Database.requireLength(description, Database.DESCRIPTION, "Repair description");
         String serviceDate = date.strip();
         String invalidDate = "Enter a valid service date in YYYY-MM-DD format.";
         if (!serviceDate.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}") || serviceDate.startsWith("0000")) {
@@ -312,10 +253,14 @@ final class ServicePanel extends JPanel {
         problem.setEditable(false);
         JTextArea description = textArea(job.description());
         description.setEditable(active);
+        Main.limitText(description, Database.DESCRIPTION);
         JComboBox<ServiceRepository.Status> statuses = new JComboBox<>();
+        Main.usePlainText(statuses);
         statuses.addItem(job.status());
         for (ServiceRepository.Status nextStatus : job.status().nextStatuses()) {
-            statuses.addItem(nextStatus);
+            if (nextStatus.isActive() || StaffAccounts.isManager()) {
+                statuses.addItem(nextStatus);
+            }
         }
         statuses.setEnabled(active);
 
@@ -344,9 +289,19 @@ final class ServicePanel extends JPanel {
                 continue;
             }
             try {
-                if (!repository.update(job, description.getText().strip(), newStatus)) {
+                String repair = description.getText();
+                if (!Objects.toString(job.description(), "").equals(repair)) {
+                    Database.requireLength(repair, Database.DESCRIPTION, "Repair description");
+                    repair = repair.strip();
+                } else {
+                    repair = job.description();
+                }
+                if (!repository.update(job, repair, newStatus)) {
                     showError("This job changed since it was opened. Open it again to see the latest details.");
                 }
+            } catch (IllegalArgumentException exception) {
+                showError(exception.getMessage());
+                continue;
             } catch (SQLException exception) {
                 showDatabaseError("Could not update the service job.", exception);
                 continue;
@@ -455,7 +410,9 @@ final class ServicePanel extends JPanel {
                         formatMoney(BigDecimal.valueOf(details.unitPriceCents(), 2)), formatMoney(details.total())});
             }
             String suffix = !readOnly && costs.status().isActive() ? "" : " · Charges are read-only";
-            jobStatus.setText("Status: " + costs.status() + suffix);
+            String partLimit = costs.status().isActive() && costs.parts().size() == Database.PARTS_PER_JOB
+                    ? " · Part limit reached" : "";
+            jobStatus.setText("Status: " + costs.status() + suffix + partLimit);
             subtotal.setText(formatMoney(costs.partsTotal()));
             laborTotal.setText(formatMoney(BigDecimal.valueOf(costs.laborCents(), 2)));
             grandTotal.setText(formatMoney(costs.grandTotal()));
@@ -466,7 +423,7 @@ final class ServicePanel extends JPanel {
         private void updateControls() {
             boolean active = !readOnly && costs != null && costs.status().isActive();
             boolean partSelected = active && partTable.getSelectedRow() >= 0;
-            addPart.setEnabled(active);
+            addPart.setEnabled(active && costs.parts().size() < Database.PARTS_PER_JOB);
             editPart.setEnabled(partSelected);
             removePart.setEnabled(partSelected);
             editLabor.setEnabled(active);
@@ -482,6 +439,9 @@ final class ServicePanel extends JPanel {
             JTextField quantity = new JTextField(details == null ? "1" : Long.toString(details.quantity()), 12);
             JTextField price = new JTextField(details == null ? "" :
                     BigDecimal.valueOf(details.unitPriceCents(), 2).toPlainString(), 12);
+            Main.limitText(name, Database.PART_NAME);
+            Main.limitText(quantity, 20);
+            Main.limitText(price, 28);
             JPanel form = new JPanel(new GridBagLayout());
             Main.addField(form, 0, "Part name", name);
             Main.addField(form, 1, "Quantity", quantity);
@@ -519,6 +479,7 @@ final class ServicePanel extends JPanel {
         private void showLaborForm() {
             long previousCents = costs.laborCents();
             JTextField amount = new JTextField(BigDecimal.valueOf(previousCents, 2).toPlainString(), 12);
+            Main.limitText(amount, 28);
             JPanel form = new JPanel(new GridBagLayout());
             Main.addField(form, 0, "Labor charge (LKR)", amount);
             while (confirmChargeForm(form, "Set labor charge")) {
@@ -547,7 +508,7 @@ final class ServicePanel extends JPanel {
 
         private void databaseError(String message, SQLException exception) {
             System.err.println(message + " " + exception.getMessage());
-            chargeError(message + " Check that the database is accessible and try again.");
+            chargeError(Database.userError(exception, message + " Check that the database is accessible and try again."));
         }
 
         private void chargeError(String message) {
@@ -556,6 +517,8 @@ final class ServicePanel extends JPanel {
     }
 
     static ServiceRepository.PartDetails readPart(String name, String quantity, String price) {
+        Database.requireLength(name, Database.PART_NAME, "Part name");
+        Database.requireLength(quantity, 20, "Quantity");
         long units;
         try {
             units = Long.parseLong(quantity.strip());
@@ -566,6 +529,7 @@ final class ServicePanel extends JPanel {
     }
 
     static long readMoney(String input, String label) {
+        Database.requireLength(input, 28, label);
         String amount = input.strip();
         if (!amount.matches("(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\\.[0-9]{1,2})?|\\.[0-9]{1,2}")) {
             throw new IllegalArgumentException("Enter a non-negative " + label + " with up to two decimal places.");
@@ -601,7 +565,7 @@ final class ServicePanel extends JPanel {
 
     private void showDatabaseError(String message, SQLException exception) {
         System.err.println(message + " " + exception.getMessage());
-        showError(message + " Check that the database is accessible and try again.");
+        showError(Database.userError(exception, message + " Check that the database is accessible and try again."));
     }
 
     private void showError(String message) {
