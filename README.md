@@ -2,6 +2,29 @@
 
 Serviqo is a Java desktop application for vehicle service and repair workshops. It stores customers, vehicles, service jobs, and repair charges in SQLite. The dashboard summarizes workshop activity, and staff can search service history and print invoices for completed jobs.
 
+## Screenshots
+
+The screenshots show a workshop using fictional records from Jaffna and Vavuniya. Click any image to view it at full size.
+
+[![Serviqo dashboard with workshop totals and recent service jobs](docs/screenshots/02-dashboard.png)](docs/screenshots/02-dashboard.png)
+
+| Staff sign-in | Customers |
+| --- | --- |
+| [![Serviqo staff sign-in form](docs/screenshots/01-login.png)](docs/screenshots/01-login.png) | [![Customer records for Vishnu, Tharan, Thaksi, and other sample customers](docs/screenshots/03-customers.png)](docs/screenshots/03-customers.png) |
+
+| Vehicles | Service jobs |
+| --- | --- |
+| [![Registered vehicles and their owners](docs/screenshots/04-vehicles.png)](docs/screenshots/04-vehicles.png) | [![Service jobs with pending, in-progress, completed, and cancelled statuses](docs/screenshots/05-service-jobs.png)](docs/screenshots/05-service-jobs.png) |
+
+| Job details | Parts and labor |
+| --- | --- |
+| [![Tharan's Honda Dio brake inspection and repair notes](docs/screenshots/06-job-details.png)](docs/screenshots/06-job-details.png) | [![Itemized parts and labor for Vishnu's Toyota Axio](docs/screenshots/07-parts-and-labor.png)](docs/screenshots/07-parts-and-labor.png) |
+
+| Invoice preview | Service history |
+| --- | --- |
+| [![Vishnu's Toyota Axio invoice showing a total of Rs. 14,300.00](docs/screenshots/08-invoice.png)](docs/screenshots/08-invoice.png) | [![Two completed service records for Vishnu's Toyota Axio](docs/screenshots/09-service-history.png)](docs/screenshots/09-service-history.png) |
+
+
 ## Run on Windows
 
 Install JDK 21 and Apache Maven. Open this project folder in VS Code and use its PowerShell terminal, or open PowerShell directly in the project folder. Check the setup with `java -version`, `javac -version`, and `mvn -version`. Maven should report Java 21.
